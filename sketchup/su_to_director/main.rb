@@ -677,7 +677,9 @@ module SuToDirector
           total: @bg_total,
           url: @preview ? @preview[:url] : nil,
           width: @preview ? @preview[:width] : nil,
-          height: @preview ? @preview[:height] : nil
+          height: @preview ? @preview[:height] : nil,
+          # 拍照那一刻的机位，导演台拿它对齐模型和背景
+          view: @preview ? @preview[:view] : nil
         },
         video: video_status,
         received: @received,
