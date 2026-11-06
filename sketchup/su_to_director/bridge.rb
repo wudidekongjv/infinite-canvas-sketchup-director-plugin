@@ -24,26 +24,27 @@ module SuToDirector
       return false if @running
       @server = TCPServer.new('127.0.0.1', @port)
       @running = true
-      @thread = Thread.new do
-        loop do
-          break unless @running
-          begin
-            client = @server.accept
-          rescue StandardError
-            break unless @running
-            next
-          end
-          Thread.new(client) { |c| serve(c) }
-        end
-      end
+      # 重要：SketchUp 2026（Ruby 3.2）里 Thread 起的 accept 不会真正推进
+      # （实测线程停在 sleep、端口在监听但永不响应），所以改用 UI.start_timer
+      # 在主线程里轮询 accept_nonblock。handle_request 里可以安全碰 SketchUp API。
+      @timer = ::UI.start_timer(0.05, true) { poll }
       true
     rescue StandardError => e
       @running = false
+      @timer = nil
       raise e
     end
 
     def stop
       @running = false
+      if @timer
+        begin
+          ::UI.stop_timer(@timer)
+        rescue StandardError
+          nil
+        end
+        @timer = nil
+      end
       begin
         @server.close if @server
       rescue StandardError
@@ -56,12 +57,29 @@ module SuToDirector
 
     private
 
+    def poll
+      return unless @running && @server
+      budget = 4
+      while budget > 0
+        client = @server.accept_nonblock(exception: false)
+        break unless client.is_a?(TCPSocket)
+        serve(client)
+        budget -= 1
+      end
+    rescue StandardError
+      nil
+    end
+
     def serve(client)
       method = 'GET'
       path = '/'
       query = {}
       headers = {}
       body = ''
+
+      # 主线程处理，等不到数据就放弃这个连接，避免把 SketchUp 界面卡住
+      ready = ::IO.select([client], nil, nil, 1.0)
+      return client.close if ready.nil?
 
       request_line = client.gets("\r\n")
       return client.close if request_line.nil?

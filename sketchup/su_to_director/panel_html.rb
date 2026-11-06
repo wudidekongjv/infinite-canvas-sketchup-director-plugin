@@ -133,24 +133,23 @@ module SuToDirector
       </div>
 
       <script>
+        var BRIDGE = "http://127.0.0.1:37740";
         var status = {};
         function call(cmd, options) {
-          return new Promise(function (resolve) {
-            try {
-              window.sketchup.command(JSON.stringify({ cmd: cmd, options: options || {} }), function (res) {
-                try { resolve(JSON.parse(res)); } catch (e) { resolve(status); }
-              });
-            } catch (e) { resolve(status); }
-          });
+          // 面板与 Ruby 之间走 37740 的 HTTP 接口（SketchUp 2026 的 HtmlDialog JS 桥不可用）
+          return fetch(BRIDGE + "/su/command", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ cmd: cmd, options: options || {} })
+          }).then(function (r) { return r.json(); }).catch(function () { return status; });
         }
         function $(id) { return document.getElementById(id); }
 
         function render(s) {
-          status = s || {};
-          var bridge = (s.bridge || {});
+          status = s || {};          var bridge = (s.bridge || {});
           $("dot").className = "dot" + (bridge.running ? " on" : "");
           $("svc").textContent = bridge.running ? ("同步服务运行中 · 端口 " + bridge.port) : "同步服务未启动";
-          $("btnToggleBridge").textContent = bridge.running ? "停止服务" : "启动服务";
+          $("btnToggleBridge").textContent = bridge.running ? "服务运行中" : "启动服务";
           $("deskUrl").textContent = s.deskUrl || "—";
           $("outDir").textContent = s.outDir || "—";
           $("videoInfo").textContent = s.outDir ? (s.outDir + "/video") : "—";
@@ -183,6 +182,9 @@ module SuToDirector
           $("log").textContent = (s.messages || []).join("\\n") || "—";
         }
 
+        // Ruby 侧通过 execute_script 主动推状态（action callback 的返回值不一定能回传）
+        window.__su = function (s) { try { render(s); } catch (e) { } };
+
         function options() {
           return {
             duration: parseFloat($("duration").value),
@@ -209,8 +211,11 @@ module SuToDirector
         bind("btnStopBg", "stop_bg");
 
         $("btnToggleBridge").addEventListener("click", function () {
-          var cmd = (status.bridge && status.bridge.running) ? "stop_bridge" : "start_bridge";
-          call(cmd, options()).then(render);
+          if (status.bridge && status.bridge.running) {
+            $("log").textContent = "服务在运行。要停止请用「扩展程序 → SU ⇄ 3D 导演台 → 停止同步服务」。";
+            return;
+          }
+          call("start_bridge", options()).then(render);
         });
         $("btnOpenDir").addEventListener("click", function () {
           call("open_out_dir").then(render);
@@ -222,8 +227,11 @@ module SuToDirector
           call("open_video_dir").then(render);
         });
 
-        setInterval(function () { call("status").then(render); }, 1500);
-        call("status").then(render);
+        function refresh() {
+          fetch(BRIDGE + "/su/status").then(function (r) { return r.json(); }).then(render).catch(function () { });
+        }
+        setInterval(refresh, 1500);
+        refresh();
       </script>
     </body>
     </html>

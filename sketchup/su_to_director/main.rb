@@ -297,6 +297,35 @@ module SuToDirector
       status_hash
     end
 
+    # 面板（走 HTTP）与 Extension 菜单（走 Ruby）共用的命令分发
+    def run_command(data)
+      data = {} unless data.is_a?(Hash)
+      cmd = data['cmd'].to_s
+      opts = data['options'].is_a?(Hash) ? data['options'] : {}
+      case cmd
+      when 'record_start' then record_view('start')
+      when 'record_end' then record_view('end')
+      when 'build_shot' then build_shot(opts)
+      when 'export_occluders' then export_occluders(opts)
+      when 'render_bg' then render_background(opts)
+      when 'stop_bg' then stop_background
+      when 'start_bridge' then start_bridge(opts['port'])
+      when 'stop_bridge' then stop_bridge
+      when 'encode_video' then encode_video(opts['fps'])
+      when 'open_out_dir'
+        dir = ensure_out_dir
+        SuToDirector.open_folder(dir) if dir
+      when 'open_video_dir'
+        dir = video_dir
+        SuToDirector.open_folder(dir) if dir
+      when 'status', '' then nil
+      end
+      nil
+    rescue StandardError => e
+      log("命令失败：#{e.message}")
+      nil
+    end
+
     def video_dir
       dir = ensure_out_dir
       return nil unless dir
@@ -339,6 +368,14 @@ module SuToDirector
       when '/su/session'
         [200, 'application/json; charset=utf-8', JSON.generate(session_payload)]
       when '/su/status'
+        [200, 'application/json; charset=utf-8', JSON.generate(status_hash)]
+      when '/su/command'
+        begin
+          data = JSON.parse(body.to_s)
+        rescue StandardError
+          data = {}
+        end
+        run_command(data)
         [200, 'application/json; charset=utf-8', JSON.generate(status_hash)]
       when '/su/occluders.obj'
         path_obj = @occluder && @occluder[:path]
@@ -438,6 +475,13 @@ module SuToDirector
   end
 
   def self.open_panel
+    # 面板与 Ruby 的通信走 37740 上的 HTTP 接口（SketchUp 2026 的 HtmlDialog
+    # JS 桥实测不可用），所以打开面板时先把服务拉起来。
+    begin
+      SESSION.start_bridge
+    rescue StandardError => e
+      SESSION.log("同步服务启动失败：#{e.message}")
+    end
     if @dialog && @dialog.visible?
       @dialog.bring_to_front
       return
@@ -455,28 +499,19 @@ module SuToDirector
     @dialog.add_action_callback('command') do |_context, payload|
       begin
         data = JSON.parse(payload.to_s)
-        cmd = data['cmd'].to_s
-        case cmd
-        when 'record_start' then SESSION.record_view('start')
-        when 'record_end' then SESSION.record_view('end')
-        when 'build_shot' then SESSION.build_shot(data['options'] || {})
-        when 'export_occluders' then SESSION.export_occluders(data['options'] || {})
-        when 'render_bg' then SESSION.render_background(data['options'] || {})
-        when 'stop_bg' then SESSION.stop_background
-        when 'start_bridge' then SESSION.start_bridge((data['options'] || {})['port'])
-        when 'stop_bridge' then SESSION.stop_bridge
-        when 'encode_video' then SESSION.encode_video((data['options'] || {})['fps'])
-        when 'open_out_dir'
-          dir = SESSION.ensure_out_dir
-          SuToDirector.open_folder(dir) if dir
-        when 'open_video_dir'
-          dir = SESSION.video_dir
-          SuToDirector.open_folder(dir) if dir
-        end
-      rescue StandardError => e
-        SESSION.log("命令失败：#{e.message}")
+      rescue StandardError
+        data = {}
       end
-      JSON.generate(SESSION.status_hash)
+      SESSION.run_command(data)
+      payload_json = JSON.generate(SESSION.status_hash)
+      # SketchUp 2026 的 HtmlDialog JS 桥实测不可用，面板主要走 37740 的 HTTP 接口；
+      # 这里尽量推一次状态，推不动就静默。
+      begin
+        @dialog.execute_script("window.__su && window.__su(#{payload_json})") if @dialog
+      rescue StandardError
+        nil
+      end
+      payload_json
     end
 
     @dialog.show

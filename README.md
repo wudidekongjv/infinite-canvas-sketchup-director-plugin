@@ -59,10 +59,10 @@ npx http-server director -p 5199
 在画布的「节点插件 / 第三方插件」里填：
 
 ```
-https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.1/dist/director.js
+https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.2/dist/director.js
 ```
 
-> 推荐用 `@v0.1.1` 这类的 tag 地址：jsDelivr 对分支（`@main`）有 12 小时缓存，改完代码立刻用 `@main` 可能还是旧版；tag 不可变，立即可用。想跟最新提交就用 `@main`，但要做好等缓存的心理准备。
+> 推荐用 `@v0.1.2` 这类的 tag 地址：jsDelivr 对分支（`@main`）有 12 小时缓存，改完代码立刻用 `@main` 可能还是旧版；tag 不可变，立即可用。想跟最新提交就用 `@main`，但要做好等缓存的心理准备。
 
 装好后画布节点面板里会多出 **SU ⇄ 3D 导演台**。
 
@@ -129,14 +129,32 @@ npm run build     # 产出 dist/director.js
 
 ---
 
-## 六、已知边界
+## 六、排错：点了没反应 / 连不上
+
+SketchUp 2026（Ruby 3.2）上有两个坑，v0.1.2 已经修掉。记下原因，以后遇到同类现象能自己判断：
+
+| 现象 | 真正的原因 | 现在的做法 |
+| --- | --- | --- |
+| 点菜单「启动同步服务」，37740 端口在监听，但 `/su/ping` 一直超时 | `Thread` 里起的 `accept` 在 SketchUp 2026 根本不推进——线程对象在、端口在监听，就是没有代码去处理连接 | `bridge.rb` 改用 `UI.start_timer` 在主线程轮询 `accept_nonblock`，顺带让处理函数能安全碰 SketchUp API |
+| 面板上的按钮点了没反应，状态一直显示「同步服务未启动」 | SketchUp 2026 的 `HtmlDialog` 里 JS 侧的 `sketchup.*` 桥不可用，回调进不到 Ruby | 面板改走 `http://127.0.0.1:37740/su/command`（与菜单同一套命令分发），状态每 1.5 秒拉一次 `/su/status`；打开面板时会自动把服务拉起来 |
+
+自己确认服务是否活着（PowerShell 里跑，注意用系统自带的 curl 绝对路径）：
+
+```powershell
+C:\Windows\System32\curl.exe -s http://127.0.0.1:37740/su/ping
+C:\Windows\System32\curl.exe -s http://127.0.0.1:37740/su/status
+```
+
+返回 `{"ok":true,...}` 说明插件这侧是通的；连不上就是 SketchUp 没开，或者服务没起来（重新打开一次面板即可）。
+
+## 七、已知边界
 
 - 机位目前是**起点 + 终点两点插值**，多机位序列还没做。
 - 角色层单独渲染，**不接收 SU 场景阴影**，人物脚下没有接触阴影。
 - 输出的 mp4 只有 H.264 画面，**没有音轨**。
 - 遮挡精度取决于 SU 导出的面片数量（面板里可设上限，超了会截断）。
 
-## 七、许可
+## 八、许可
 
 - 本仓库的节点插件与 SketchUp 插件：AGPL-3.0（见 `LICENSE`）。
 - 3D 导演台本体：MIT（见 `LICENSE-DIRECTOR.md`），上游参考自 `xiaozangao/3d-director-desk`。
