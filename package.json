@@ -1,14 +1,17 @@
 {
     "name": "infinite-canvas-sketchup-director-plugin",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "private": false,
     "type": "module",
     "description": "Infinite Canvas 第三方节点插件：把 SketchUp 的机位与遮挡接进 3D 导演台",
     "scripts": {
         "build": "node build.mjs",
-        "typecheck": "node --check src/index.js"
+        "test": "node test/harness.mjs"
     },
     "devDependencies": {
-        "esbuild": "^0.25.0"
+        "esbuild": "^0.25.0",
+        "jsdom": "^25.0.0",
+        "react": "^18.3.1",
+        "react-dom": "^18.3.1"
     }
 }

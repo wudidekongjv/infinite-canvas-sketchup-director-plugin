@@ -25,6 +25,11 @@ function normalizeBase(value, fallback) {
     }
 }
 
+function normalizeBridge(value, fallback) {
+    // 桥地址按段拼路由（/su/ping 之类），不能留尾斜杠
+    return readText(value, fallback).replace(/\/+$/, "");
+}
+
 function originOf(url, fallback) {
     try {
         return new URL(url).origin;
@@ -157,11 +162,15 @@ function DirectorContent({ ctx, React }) {
     const savedDirectorUrl = ctx.node.metadata?.directorUrl;
     const savedBridge = ctx.node.metadata?.suBridge;
     const [directorUrl, setDirectorUrl] = React.useState(() => normalizeBase(savedDirectorUrl, DEFAULT_DIRECTOR_URL));
-    const [suBridge, setSuBridge] = React.useState(() => normalizeBase(savedBridge, DEFAULT_SU_BRIDGE));
+    const [suBridge, setSuBridge] = React.useState(() => normalizeBridge(savedBridge, DEFAULT_SU_BRIDGE));
 
+    // 只在真的和节点已有的 metadata 不同时才写回：ctx 每次渲染都是新对象，
+    // 直接依赖 ctx 会导致「写 metadata → 节点更新 → 重渲染 → 再写」的无限循环（React #185）。
     React.useEffect(() => {
-        ctx.updateMetadata?.({ directorUrl, suBridge });
-    }, [ctx, directorUrl, suBridge]);
+        const meta = ctxRef.current.node?.metadata || {};
+        if (meta.directorUrl === directorUrl && meta.suBridge === suBridge) return;
+        ctxRef.current.updateMetadata?.({ directorUrl, suBridge });
+    }, [directorUrl, suBridge]);
 
     React.useEffect(() => {
         if (!open) return undefined;
