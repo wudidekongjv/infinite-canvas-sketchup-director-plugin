@@ -212,7 +212,9 @@ module SuToDirector
         url: "/su/bg/preview.png?v=#{Time.now.to_i}",
         width: width,
         height: height,
-        at: Time.now.to_i
+        at: Time.now.to_i,
+        # 把拍照这一刻的机位一起存下来：导演台用它对齐，模型和背景才是同一双眼睛看到的
+        view: current_view_hash
       }
       @bg_state = 'done'
       @bg_done = 1
