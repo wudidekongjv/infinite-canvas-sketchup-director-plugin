@@ -131,7 +131,7 @@ module SuToDirector
       {
         eye: inch_to_desk(cam.eye),
         target: inch_to_desk(cam.target),
-        up: inch_to_desk(cam.up),
+        up: [cam.up.x.round(5), cam.up.z.round(5), (-cam.up.y).round(5)],
         fov: cam.fov.to_f.round(2),
         vp: { w: view.vpwidth.to_i, h: view.vpheight.to_i }
       }
@@ -362,7 +362,9 @@ module SuToDirector
       if source.empty?
         source = Sketchup.active_model.selection.empty? ? 'visible' : 'selection'
       end
-      export_occluders('source' => source, 'maxFaces' => (params['maxFaces'] || 600_000))
+      # 没选中就传整个可见模型。上限压在 20 万面：整个教室 60 万面会导成 48MB，
+      # 导演台解析会明显变慢；遮挡只要墙和家具的轮廓，20 万面够用。
+      export_occluders('source' => source, 'maxFaces' => (params['maxFaces'] || 200_000))
     end
 
     # ---------- 背景帧 ----------
@@ -704,6 +706,14 @@ module SuToDirector
 
   unless file_loaded?(__FILE__)
     build_menu
+    # 扩展一加载就把同步服务点起来：导演台面板打开就能连上，不用再点菜单
+    ::UI.start_timer(2.5, false) do
+      begin
+        SESSION.start_bridge
+      rescue StandardError => error
+        puts "SU ⇄ 导演台：自动启动同步服务失败：#{error.message}"
+      end
+    end
     file_loaded(__FILE__)
   end
 end

@@ -41,6 +41,8 @@ sketchup/su_to_director\        →  …\SketchUp\SketchUp 20xx\SketchUp\Plugins
 
 Windows 上通常是 `%APPDATA%\SketchUp\SketchUp 2026\SketchUp\Plugins\`。重启 SketchUp 后，菜单里会出现 **扩展程序 → SU 导演台同步**。
 
+> **不用点菜单**：插件一加载就会自己把同步服务起在 `127.0.0.1:37740`，打开导演台面板就直接连上。菜单里的「启动/停止同步服务」只是备用开关。
+
 ### 2. 起导演台本地服务
 
 `director/` 是这个仓库里的导演台构建产物，用任意静态服务器指向它即可（**必须是本机 http，原因见第四节**）：
@@ -59,10 +61,10 @@ npx http-server director -p 5199
 在画布的「节点插件 / 第三方插件」里填：
 
 ```
-https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.5/dist/director.js
+https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.6/dist/director.js
 ```
 
-> 推荐用 `@v0.1.5` 这类的 tag 地址：jsDelivr 对分支（`@main`）有 12 小时缓存，改完代码立刻用 `@main` 可能还是旧版；tag 不可变，立即可用。想跟最新提交就用 `@main`，但要做好等缓存的心理准备。
+> 推荐用 `@v0.1.6` 这类的 tag 地址：jsDelivr 对分支（`@main`）有 12 小时缓存，改完代码立刻用 `@main` 可能还是旧版；tag 不可变，立即可用。想跟最新提交就用 `@main`，但要做好等缓存的心理准备。
 
 装好后画布节点面板里会多出 **SU ⇄ 3D 导演台**。
 
