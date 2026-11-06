@@ -47,28 +47,21 @@ Windows 上通常是 `%APPDATA%\SketchUp\SketchUp 2026\SketchUp\Plugins\`。重�
 >
 > 最省事的拿法：`pip install imageio-ffmpeg`，它自带一份 `ffmpeg-win-x86_64-*.exe`，在 `site-packages\imageio_ffmpeg\binaries\` 里，复制出来改名 `ffmpeg.exe` 放进去即可（也可以设环境变量 `SU_DIRECTOR_FFMPEG` 指向任意 ffmpeg）。
 
-### 2. 起导演台本地服务
+### 2. 本机不用起任何服务（CDN 安装就是这样）
 
-`director/` 是这个仓库里的导演台构建产物，用任意静态服务器指向它即可（**必须是本机 http，原因见第四节**）：
+用下面的 CDN 地址安装时，节点自己会去加载 CDN 上的 `director/index.html`，本机不需要开 5199、也不需要 `npx serve`。
 
-```bash
-# 任选一种
-npx serve director            # 默认 3000 端口
-npx http-server director -p 5199
-# 或者用仓库里的 启动导演台.ps1（vite preview，5199 端口）
-```
-
-插件里默认填的导演台地址就是 `http://127.0.0.1:5199/`，端口不一致时在节点面板里改一下即可。
+只有你自己改了导演台源码、想先看本地那份时，才需要起一个静态服务器，并把节点面板里的「导演台地址」改成对应端口：
 
 ### 3. 在无限画布里装节点插件（CDN）
 
 在画布的「节点插件 / 第三方插件」里填：
 
 ```
-https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.9/dist/director.js
+https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.10/dist/director.js
 ```
 
-> 推荐用 `@v0.1.9` 这类的 tag 地址：jsDelivr 对分支（`@main`）有 12 小时缓存，改完代码立刻用 `@main` 可能还是旧版；tag 不可变，立即可用。想跟最新提交就用 `@main`，但要做好等缓存的心理准备。
+> 推荐用 `@v0.1.10` 这类的 tag 地址：jsDelivr 对分支（`@main`）有 12 小时缓存，改完代码立刻用 `@main` 可能还是旧版；tag 不可变，立即可用。想跟最新提交就用 `@main`，但要做好等缓存的心理准备。
 
 装好后画布节点面板里会多出 **SU ⇄ 3D 导演台**。
 

@@ -2,7 +2,23 @@
 // 通过公开 CDN 安装（dist/director.js）。节点负责把导演台页面装进 overlay iframe，
 // 把 SUP 桥接地址（?suBridge=）带进去，并把导演台回传的截图变成画布图片节点。
 
-const DEFAULT_DIRECTOR_URL = "http://127.0.0.1:5199/";
+// 默认直接用 CDN 上的导演台页面（dist/director.js 隔壁的 ../director/index.html）。
+// 这样别人只填一个 CDN 地址就能装，不必在本机额外起 5199 静态服务。
+// 只有 import.meta.url 是 blob:（宿主用 blob 加载插件）解析不了相对路径时，才退回 CDN 绝对地址。
+const CDN_FALLBACK_DIRECTOR_URL =
+    "https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@main/director/index.html";
+
+function defaultDirectorUrl() {
+    try {
+        const url = new URL("../director/index.html", import.meta.url);
+        if (url.protocol === "http:" || url.protocol === "https:") return url.toString();
+    } catch {
+        // import.meta.url 不可解析，走下面的 CDN 兜底
+    }
+    return CDN_FALLBACK_DIRECTOR_URL;
+}
+
+const DEFAULT_DIRECTOR_URL = defaultDirectorUrl();
 const DEFAULT_SU_BRIDGE = "http://127.0.0.1:37740";
 
 const READY = "storyai:director-desk-ready";
