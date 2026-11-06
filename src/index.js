@@ -8,6 +8,7 @@ const DEFAULT_SU_BRIDGE = "http://127.0.0.1:37740";
 const READY = "storyai:director-desk-ready";
 const SESSION = "storyai:director-desk-session";
 const CAPTURES_SENT = "storyai:director-desk-captures-sent";
+const VIDEO_SENT = "storyai:director-desk-video";
 const CLOSED = "storyai:director-desk-close";
 
 function readText(value, fallback) {
@@ -131,6 +132,44 @@ async function sendCaptures(ctx, captures) {
     if (ops.length) ctx.applyOps(ops);
 }
 
+/** 导演台合成好的 mp4：在画布里落一个视频节点。同一条视频重复发来只认第一次（幂等） */
+function addVideoNode(ctx, payload) {
+    const url = typeof payload?.url === "string" ? payload.url : "";
+    if (!/^https?:\/\//.test(url)) return;
+
+    const nodes = ctx.getNodes();
+    if (nodes.some((node) => node?.metadata?.content === url)) return;
+
+    const director = ctx.node;
+    let y = director.position.y;
+    for (const connection of ctx.getConnections()) {
+        if (connection.fromNodeId !== director.id) continue;
+        const output = nodes.find((node) => node.id === connection.toNodeId);
+        if (output) y = Math.max(y, output.position.y + output.height + 36);
+    }
+
+    const title = typeof payload?.name === "string" && payload.name.trim() ? payload.name.trim() : "导演台成片.mp4";
+    const id = randomId("su-director-video");
+    try {
+        ctx.applyOps([
+            {
+                type: "add_node",
+                id,
+                nodeType: "video",
+                title,
+                x: director.position.x + director.width + 96,
+                y,
+                width: 480,
+                height: 300,
+                metadata: { content: url, status: "success", mimeType: "video/mp4" },
+            },
+            { type: "connect_nodes", fromNodeId: director.id, toNodeId: id },
+        ]);
+    } catch (error) {
+        console.warn("[su-director] 新建视频节点失败", error);
+    }
+}
+
 function makeFieldStyle(ctx) {
     return {
         width: "100%",
@@ -219,6 +258,11 @@ function DirectorContent({ ctx, React }) {
             if (type === CAPTURES_SENT) {
                 const captures = Array.isArray(event.data?.payload?.captures) ? event.data.payload.captures : [];
                 void sendCaptures(ctxRef.current, captures);
+                return;
+            }
+
+            if (type === VIDEO_SENT) {
+                addVideoNode(ctxRef.current, event.data?.payload);
                 return;
             }
 

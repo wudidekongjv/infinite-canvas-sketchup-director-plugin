@@ -23,6 +23,11 @@ module SuToDirector
       @bg_state = 'idle'  # idle / rendering / done
       @bg_done = 0
       @bg_total = 0
+      @preview = nil      # { path:, url:, width:, height:, at: } 当前视角那一张
+      @scenes = []        # 场景（= 机位）缓存，只在主线程刷新
+      @scene = ''
+      @last_view = nil    # 最近一次读到的相机姿态
+      @video = nil        # { size:, at: } 合成好的 mp4
       @received = Hash.new(0)
       @bridge = nil
       @out_dir = nil
@@ -84,6 +89,141 @@ module SuToDirector
       dir = ensure_out_dir
       return nil unless dir
       File.join(dir, *parts)
+    end
+
+    # ---------- 场景 = 机位 ----------
+    # SketchUp 的场景本身就存着相机，所以机位列表直接取场景，不再单独"记录起点/终点"。
+    def scenes
+      model = Sketchup.active_model
+      return [] unless model
+      selected = model.pages.selected_page
+      picked = selected ? selected.name.to_s : ''
+      list = []
+      model.pages.each_with_index do |page, index|
+        list << { index: index, name: page.name.to_s, active: (page.name.to_s == picked) }
+      end
+      list
+    rescue StandardError => e
+      log("读取场景失败：#{e.message}")
+      []
+    end
+
+    def refresh_scenes
+      @scenes = scenes
+      active = @scenes.find { |item| item[:active] }
+      @scene = active ? active[:name].to_s : ''
+    rescue StandardError
+      nil
+    end
+
+    def inch_to_desk(value)
+      [(value.x * Coords::INCH).round(4), (value.z * Coords::INCH).round(4), (-value.y * Coords::INCH).round(4)]
+    end
+
+    def desk_to_su_point(value)
+      raise '机位数据不完整' unless value.is_a?(Array) && value.length >= 3
+      Geom::Point3d.new(value[0].to_f / Coords::INCH, -value[2].to_f / Coords::INCH, value[1].to_f / Coords::INCH)
+    end
+
+    def current_view_hash
+      view = Sketchup.active_model.active_view
+      cam = view.camera
+      {
+        eye: inch_to_desk(cam.eye),
+        target: inch_to_desk(cam.target),
+        up: inch_to_desk(cam.up),
+        fov: cam.fov.to_f.round(2),
+        vp: { w: view.vpwidth.to_i, h: view.vpheight.to_i }
+      }
+    end
+
+    # 切到某个场景：SU 相机跟着变，导演台再读 /su/status 就知道该摆哪了
+    def apply_scene(params = {})
+      pages = Sketchup.active_model.pages
+      page = nil
+      index = params['index']
+      page = pages[index.to_i] if index && !index.to_s.empty?
+      name = params['name'].to_s
+      if page.nil? && !name.empty?
+        pages.each { |item| page = item if item.name.to_s == name }
+      end
+      raise "没有找到场景：#{name.empty? ? index : name}" if page.nil?
+      pages.selected_page = page
+      refresh_scenes
+      @last_view = current_view_hash
+      log("机位已切到场景：#{page.name}")
+      { ok: true }
+    end
+
+    # 导演台把它的相机发过来，让 SU 站在同一个视角（这样截图才对得上）
+    def follow_camera(params = {})
+      view = Sketchup.active_model.active_view
+      eye = desk_to_su_point(params['eye'])
+      target = desk_to_su_point(params['target'])
+      up = if params['up'].is_a?(Array)
+             point = desk_to_su_point(params['up'])
+             Geom::Vector3d.new(point.x, point.y, point.z)
+           else
+             Geom::Vector3d.new(0, 0, 1)
+           end
+      up = Geom::Vector3d.new(0, 0, 1) if up.length < 1e-9
+      cam = Sketchup::Camera.new(eye, target, up)
+      fov = params['fov'].to_f
+      cam.fov = fov if fov > 1.0 && fov < 179.0
+      view.camera = cam
+      @last_view = current_view_hash
+      { ok: true }
+    end
+
+    def write_image_file(view, path, width, height)
+      begin
+        # SketchUp 2026 的 View#write_image 只接受一个 Hash 参数
+        view.write_image({
+          filename: path,
+          width: width,
+          height: height,
+          antialias: true,
+          compression: 0.9,
+          transparent: false
+        })
+      rescue StandardError
+        view.write_image(path, width, height, true, 0.9)
+      end
+      File.exist?(path) && File.size(path) > 0
+    end
+
+    # 一键：只截当前视角这一张。不循环、不批量，所以不会把界面占死。
+    def shot_now(params = {})
+      ensure_out_dir
+      view = Sketchup.active_model.active_view
+      vw = view.vpwidth.to_f
+      vh = view.vpheight.to_f
+      vw = 1280.0 if vw < 1.0
+      vh = 720.0 if vh < 1.0
+      max_w = (params['width'] || 1280).to_i
+      max_w = 1280 if max_w <= 0 || max_w > 2400
+      scale = [1.0, max_w / vw].min
+      width = (vw * scale).round
+      height = (vh * scale).round
+      path = File.join(@out_dir, 'bg', 'preview.png')
+      raise '当前视角截图失败' unless write_image_file(view, path, width, height)
+      @preview = {
+        path: path,
+        url: "/su/bg/preview.png?v=#{Time.now.to_i}",
+        width: width,
+        height: height,
+        at: Time.now.to_i
+      }
+      @bg_state = 'done'
+      @bg_done = 1
+      @bg_total = 1
+      @last_view = current_view_hash
+      log("已截取当前视角：#{width}x#{height}")
+      status_hash
+    rescue StandardError => e
+      @bg_state = 'error'
+      log("当前视角截图失败：#{e.message}")
+      raise
     end
 
     # ---------- 机位 ----------
@@ -216,6 +356,15 @@ module SuToDirector
       status_hash
     end
 
+    # 一键传模型：有选中就传选中，没选中就传整个可见模型，不再让用户选参数
+    def export_model(params = {})
+      source = params['source'].to_s
+      if source.empty?
+        source = Sketchup.active_model.selection.empty? ? 'visible' : 'selection'
+      end
+      export_occluders('source' => source, 'maxFaces' => (params['maxFaces'] || 600_000))
+    end
+
     # ---------- 背景帧 ----------
     def actual_background_color
       style = Sketchup.active_model.styles.selected_style
@@ -226,58 +375,10 @@ module SuToDirector
     end
 
     def render_background(params = {})
-      build_shot(params) unless params.nil? || params.empty?
-      raise '请先生成机位轨道' if @frames.empty?
-
-      ensure_out_dir
-      Dir.glob(File.join(@out_dir, 'bg', '*.png')).each { |f| File.delete(f) rescue nil }
-      @bg_done = 0
-      @bg_total = @frames.length
-      @bg_state = 'rendering'
-
-      model = Sketchup.active_model
-      view = model.active_view
-      @restore_camera = view.camera
-
-      @timer = UI.start_timer(0.12, true) do
-        begin
-          if @bg_done >= @bg_total
-            UI.stop_timer(@timer) if @timer
-            @timer = nil
-            @bg_state = 'done'
-            view.camera = @restore_camera if @restore_camera
-            log("背景帧渲染完成：#{@bg_total} 帧 → #{File.join(@out_dir, 'bg')}")
-          else
-            index = @bg_done
-            frame = @frames[index]
-            camera = Sketchup::Camera.new(frame[:su][:eye], frame[:su][:target], frame[:su][:up])
-            camera.fov = frame[:su][:fov]
-            view.camera = camera
-            path = File.join(@out_dir, 'bg', format('bg_%05d.png', index))
-            begin
-              # SketchUp 2026 的 View#write_image 只接受一个 Hash 参数
-              view.write_image({
-                filename: path,
-                width: @shot[:width],
-                height: @shot[:height],
-                antialias: true,
-                compression: 0.9,
-                transparent: false
-              })
-            rescue StandardError
-              # 旧版 API 是位置参数形式
-              view.write_image(path, @shot[:width], @shot[:height], true, 0.9)
-            end
-            @bg_done += 1
-          end
-        rescue StandardError => e
-          UI.stop_timer(@timer) if @timer
-          @timer = nil
-          @bg_state = 'error'
-          log("背景帧渲染失败（第 #{@bg_done} 帧）：#{e.message}")
-        end
-      end
-      log('开始渲染背景帧，期间 SketchUp 会被占用，可随时点“停止”')
+      # 旧实现用 UI.start_timer 逐帧写 145 张 1920×1080，全部跑在主线程里，
+      # 界面直接被占死（这就是"SketchUp 无响应"的真因）。现在只截一张。
+      shot_now(params)
+    rescue StandardError
       status_hash
     end
 
@@ -297,6 +398,7 @@ module SuToDirector
     # ---------- 服务 ----------
     def start_bridge(port = nil)
       sync_model_info
+      refresh_scenes
       port = (port || config['port']).to_i
       if @bridge && @bridge.running?
         return status_hash
@@ -324,6 +426,11 @@ module SuToDirector
       cmd = data['cmd'].to_s
       opts = data['options'].is_a?(Hash) ? data['options'] : {}
       case cmd
+      when 'list_scenes' then refresh_scenes
+      when 'apply_scene', 'goto_scene' then apply_scene(opts)
+      when 'follow_camera' then follow_camera(opts)
+      when 'shot_now', 'shot_once', 'shot' then shot_now(opts)
+      when 'export_model' then export_model(opts)
       when 'record_start' then record_view('start')
       when 'record_end' then record_view('end')
       when 'build_shot' then build_shot(opts)
@@ -353,6 +460,15 @@ module SuToDirector
       sub = File.join(dir, 'video')
       FileUtils.mkdir_p(sub)
       sub
+    end
+
+    def latest_video_path
+      dir = video_dir
+      return nil unless dir
+      list = Dir.glob(File.join(dir, '*.mp4')).sort_by { |f| File.mtime(f) }
+      list.last
+    rescue StandardError
+      nil
     end
 
     # ---------- 视频编码 ----------
@@ -405,9 +521,25 @@ module SuToDirector
         else
           [404, 'text/plain; charset=utf-8', 'no occluder']
         end
-      when %r{^/su/bg/(\d+)\.png$}
-        index = Regexp.last_match(1).to_i
-        file = @out_dir && File.join(@out_dir, 'bg', format('bg_%05d.png', index))
+      when '/su/scenes'
+        [200, 'application/json; charset=utf-8', JSON.generate({ ok: true, scenes: @scenes })]
+      when '/su/video.mp4'
+        file = latest_video_path
+        if file && File.exist?(file)
+          [200, 'video/mp4', File.binread(file)]
+        else
+          [404, 'text/plain; charset=utf-8', 'no video']
+        end
+      when %r{^/su/bg/([A-Za-z0-9_]+)\.png$}
+        # 白名单：preview（当前视角那一张）或 bg_00001 这种逐帧图，防路径穿越
+        name = Regexp.last_match(1)
+        file = nil
+        if name == 'preview'
+          file = @preview && @preview[:path]
+        elsif name.start_with?('bg_')
+          index = name[3..-1].to_i
+          file = @out_dir && File.join(@out_dir, 'bg', format('bg_%05d.png', index))
+        end
         if file && File.exist?(file)
           [200, 'image/png', File.binread(file)]
         else
@@ -462,15 +594,34 @@ module SuToDirector
       {
         ok: true,
         bridge: { running: bridge_running?, port: bridge_port },
+        scenes: @scenes,
+        scene: @scene,
+        view: @last_view,
         shot: @shot,
         keys: key_summary,
         occluder: @occluder ? { faceCount: @occluder[:face_count], bytes: @occluder[:bytes], hash: @occluder[:hash] } : nil,
-        bg: { state: @bg_state, done: @bg_done, total: @bg_total },
+        bg: {
+          state: @bg_state,
+          done: @bg_done,
+          total: @bg_total,
+          url: @preview ? @preview[:url] : nil,
+          width: @preview ? @preview[:width] : nil,
+          height: @preview ? @preview[:height] : nil
+        },
+        video: video_status,
         received: @received,
         outDir: @out_dir,
         messages: messages,
         deskUrl: "http://127.0.0.1:#{bridge_port}/su/session"
       }
+    end
+
+    def video_status
+      file = latest_video_path
+      return nil unless file && File.exist?(file)
+      { url: '/su/video.mp4', size: File.size(file), at: File.mtime(file).to_i }
+    rescue StandardError
+      nil
     end
   end
 
@@ -543,12 +694,8 @@ module SuToDirector
     sub = menu.add_submenu('SU ⇄ 3D 导演台')
     sub.add_item('打开同步面板') { open_panel }
     sub.add_separator
-    sub.add_item('记录起点机位') { SESSION.record_view('start') }
-    sub.add_item('记录终点机位') { SESSION.record_view('end') }
-    sub.add_item('生成机位轨道') { SESSION.build_shot }
-    sub.add_separator
-    sub.add_item('导出遮挡模型(选中)') { SESSION.export_occluders('source' => 'selection') }
-    sub.add_item('渲染背景帧') { SESSION.render_background }
+    sub.add_item('截取当前视角（一张）') { SESSION.run_command('cmd' => 'shot_now') }
+    sub.add_item('一键导出遮挡模型') { SESSION.run_command('cmd' => 'export_model') }
     sub.add_separator
     sub.add_item('启动同步服务') { SESSION.start_bridge }
     sub.add_item('停止同步服务') { SESSION.stop_bridge }
