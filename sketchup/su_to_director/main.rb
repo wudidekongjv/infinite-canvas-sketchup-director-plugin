@@ -350,9 +350,10 @@ module SuToDirector
     def export_occluders(params = {})
       source = params['source'] || config['occluder_source']
       max_faces = (params['maxFaces'] || config['max_faces']).to_i
+      min_area = (params['minArea'] || 0.0004).to_f
       ensure_out_dir
       info = SuToDirector::OccluderIO.export(Sketchup.active_model, @out_dir,
-                                             source: source, max_faces: max_faces)
+                                             source: source, max_faces: max_faces, min_area: min_area)
       @occluder = info
       log("遮挡体已导出：#{info[:face_count]} 面 / #{(info[:bytes] / 1024.0 / 1024.0).round(1)}MB")
       status_hash
@@ -364,9 +365,10 @@ module SuToDirector
       if source.empty?
         source = Sketchup.active_model.selection.empty? ? 'visible' : 'selection'
       end
-      # 没选中就传整个可见模型。上限压在 20 万面：整个教室 60 万面会导成 48MB，
-      # 导演台解析会明显变慢；遮挡只要墙和家具的轮廓，20 万面够用。
-      export_occluders('source' => source, 'maxFaces' => (params['maxFaces'] || 200_000))
+      # 没选中就传整个可见模型。以前压在 20 万面，导出去的其实是"前 20 万面"——
+      # 课桌、椅子被截掉一半，看着就像模型被简化、破面了。
+      # 现在把预算提到 150 万面，并且先按面积过滤掉挡不住人的小碎面，省下的预算留给大件。
+      export_occluders('source' => source, 'maxFaces' => (params['maxFaces'] || 1_500_000))
     end
 
     # ---------- 背景帧 ----------

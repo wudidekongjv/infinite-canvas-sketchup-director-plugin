@@ -7,8 +7,11 @@ module SuToDirector
   class OccluderExporter
     attr_reader :face_count, :vertex_count, :skipped
 
-    def initialize(max_faces: 400_000)
+    def initialize(max_faces: 400_000, min_area: 0.0004)
       @max_faces = max_faces.to_i
+      # 面积太小的小碎面（椅子上的小五金、贴面的双层面、装饰细条）挡不住人，
+      # 却能把面数预算吃光——过滤掉它们，省下来的预算才能让课桌、柜子这些大件完整。
+      @min_area = min_area.to_f
       @face_count = 0
       @vertex_count = 0
       @skipped = 0
@@ -59,43 +62,50 @@ module SuToDirector
     def add_face(face, transform)
       return if face.respond_to?(:material) && face.material && face.material.alpha.to_f <= 0.01
 
+      if @min_area > 0
+        area_m2 = face.area.to_f * Coords::INCH * Coords::INCH
+        return if area_m2 < @min_area
+      end
+
       mesh = face.mesh(0)
       return if mesh.nil?
 
-      point_count = mesh.count_points
-      return if point_count < 3
+      polygons = mesh.polygons
+      return if polygons.nil? || polygons.empty?
 
-      if @face_count + 3 > @max_faces
+      # 只写"三角形真正用到的"顶点，并按用到的顺序重新编号。
+      # 以前是先把外环顶点全写出去、再拿 mesh 原始索引去引 —— 带洞的面（窗、门、柜门）
+      # 索引会越过本面写出去的顶点数，直接串到下一个面的顶点上，于是就成了跨面的大三角、
+      # 破面、课桌不像课桌。
+      local_index = {}
+      points = []
+      polygons.each do |polygon|
+        polygon.each do |point_index|
+          next if local_index.key?(point_index)
+          point = mesh.point_at(point_index).transform(transform)
+          points << point
+          local_index[point_index] = points.length # 1-based，OBJ 的索引就这么写
+        end
+      end
+      return if points.length < 3
+
+      if @face_count + polygons.length > @max_faces
         @limit_hit = true
         return
       end
 
       base = @counters[:v]
-      (1..point_count).each do |i|
-        pt = mesh.point_at(i)
-        pt = pt.transform(transform)
+      points.each do |pt|
         @lines << format('v %.5f %.5f %.5f', pt.x * Coords::INCH, pt.z * Coords::INCH, -pt.y * Coords::INCH)
       end
-      @counters[:v] += point_count
-      @vertex_count += point_count
-
-      polygons = mesh.polygons
-      if polygons.nil? || polygons.empty?
-        return
-      end
+      @counters[:v] += points.length
+      @vertex_count += points.length
 
       polygons.each do |polygon|
-        idx = []
-        polygon.each { |pt_index| idx << (base + pt_index) }
-        if idx.length < 3
-          next
-        end
+        idx = polygon.map { |point_index| base + local_index[point_index] }
+        next if idx.length < 3
         @lines << "f #{idx.join(' ')}"
         @face_count += 1
-        if @face_count >= @max_faces
-          @limit_hit = true
-          break
-        end
       end
     rescue StandardError
       @skipped += 1
@@ -106,8 +116,8 @@ module SuToDirector
     module_function
 
     # 返回 { path:, face_count:, bytes:, hash: } 或抛异常
-    def export(model, out_dir, source: 'selection', max_faces: 400_000)
-      exporter = OccluderExporter.new(max_faces: max_faces)
+    def export(model, out_dir, source: 'selection', max_faces: 400_000, min_area: 0.0004)
+      exporter = OccluderExporter.new(max_faces: max_faces, min_area: min_area)
       target = if source == 'selection'
                  selected = model.selection
                  if selected.nil? || selected.empty?
