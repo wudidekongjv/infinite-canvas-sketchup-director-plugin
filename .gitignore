@@ -1,3 +1,4 @@
 node_modules/
 *.log
 .DS_Store
+sketchup/su_to_director/tools/ffmpeg.exe

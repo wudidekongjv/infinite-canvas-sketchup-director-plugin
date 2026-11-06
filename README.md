@@ -43,6 +43,10 @@ Windows 上通常是 `%APPDATA%\SketchUp\SketchUp 2026\SketchUp\Plugins\`。重�
 
 > **不用点菜单**：插件一加载就会自己把同步服务起在 `127.0.0.1:37740`，打开导演台面板就直接连上。菜单里的「启动/停止同步服务」只是备用开关。
 
+> **出片还要一份 ffmpeg**：仓库里不带 `ffmpeg.exe`（105 MB，超过 GitHub 单文件 100 MB 硬限，已经写进 `.gitignore` 排除）。请自己放一份到 `…\Plugins\su_to_director\tools\ffmpeg.exe`；没有的话插件会退到系统 PATH 里的 ffmpeg，两处都没有就在点 ③ 时报「找不到 ffmpeg」。
+>
+> 最省事的拿法：`pip install imageio-ffmpeg`，它自带一份 `ffmpeg-win-x86_64-*.exe`，在 `site-packages\imageio_ffmpeg\binaries\` 里，复制出来改名 `ffmpeg.exe` 放进去即可（也可以设环境变量 `SU_DIRECTOR_FFMPEG` 指向任意 ffmpeg）。
+
 ### 2. 起导演台本地服务
 
 `director/` 是这个仓库里的导演台构建产物，用任意静态服务器指向它即可（**必须是本机 http，原因见第四节**）：
@@ -61,10 +65,10 @@ npx http-server director -p 5199
 在画布的「节点插件 / 第三方插件」里填：
 
 ```
-https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.6/dist/director.js
+https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.7/dist/director.js
 ```
 
-> 推荐用 `@v0.1.6` 这类的 tag 地址：jsDelivr 对分支（`@main`）有 12 小时缓存，改完代码立刻用 `@main` 可能还是旧版；tag 不可变，立即可用。想跟最新提交就用 `@main`，但要做好等缓存的心理准备。
+> 推荐用 `@v0.1.7` 这类的 tag 地址：jsDelivr 对分支（`@main`）有 12 小时缓存，改完代码立刻用 `@main` 可能还是旧版；tag 不可变，立即可用。想跟最新提交就用 `@main`，但要做好等缓存的心理准备。
 
 装好后画布节点面板里会多出 **SU ⇄ 3D 导演台**。
 
@@ -124,6 +128,7 @@ infinite-canvas-sketchup-director-plugin/
 ├─ sketchup/
 │  ├─ su_to_director.rb      SketchUp 扩展注册
 │  └─ su_to_director/        服务、机位、遮挡、面板、编码脚本
+│     └─ tools/ffmpeg.exe    ← 不入库，自己放（见第二节）
 ├─ docs/使用说明.md          更细的排错与边界说明
 ├─ LICENSE                   AGPL-3.0
 └─ LICENSE-DIRECTOR.md       3D 导演台本体的 MIT 许可
@@ -163,10 +168,14 @@ C:\Windows\System32\curl.exe -s http://127.0.0.1:37740/su/status
 
 ## 七、已知边界
 
-- 机位目前是**起点 + 终点两点插值**，多机位序列还没做。
+- 机位就是 SU 的场景，**不记起点终点**；要换视角就切场景，再点一次 ②。
+- 一次出片固定 **5 秒 / 24fps / 120 帧**（不给填参数，减少出错）。
+- 导出的是「只写深度」的遮挡层，所以**在导演台视口里看不见模型本体**，它只在出片时负责挡住人物。想知道模型到底传进来没有，看面板 ① 后面的面数与体积。
+- 背景是**一张静态图**，出片时每帧把机位重新贴一次；运镜时间长了会看出背景是定住的。
 - 角色层单独渲染，**不接收 SU 场景阴影**，人物脚下没有接触阴影。
 - 输出的 mp4 只有 H.264 画面，**没有音轨**。
-- 遮挡精度取决于 SU 导出的面片数量（面板里可设上限，超了会截断）。
+- 视频节点是靠 metadata 里的 `mimeType: "video/mp4"` 被画布当视频素材认出来的；如果你的画布版本不认，mp4 仍然在 `su_director_export\video\` 里可以直接打开。
+- SU 的视口高度常常是奇数（比如 671），而 yuv420p 要求宽高都是偶数，所以导出时会自动补一行/列（成片是 1122×670），肉眼无差。
 
 ## 八、许可
 

@@ -149,22 +149,36 @@ function addVideoNode(ctx, payload) {
     }
 
     const title = typeof payload?.name === "string" && payload.name.trim() ? payload.name.trim() : "导演台成片.mp4";
+    const width = Number(payload?.width) > 0 ? Math.round(Number(payload.width)) : 1122;
+    const height = Number(payload?.height) > 0 ? Math.round(Number(payload.height)) : 670;
     const id = randomId("su-director-video");
-    try {
-        ctx.applyOps([
-            {
-                type: "add_node",
-                id,
-                nodeType: "video",
-                title,
-                x: director.position.x + director.width + 96,
-                y,
-                width: 480,
-                height: 300,
-                metadata: { content: url, status: "success", mimeType: "video/mp4" },
+    // 画布只认 nodeType:"image"；视频靠 metadata.mimeType="video/mp4" + content=mp4 地址 来当视频素材。
+    // 位置同时写 position 和顶层 x/y，兼容两种 applyOps 实现。
+    const x = director.position.x + director.width + 96;
+    const ops = [
+        {
+            type: "add_node",
+            id,
+            nodeType: "image",
+            title,
+            position: { x, y },
+            x,
+            y,
+            width: 480,
+            height: Math.round(480 * height / width),
+            metadata: {
+                content: url,
+                status: "success",
+                mimeType: "video/mp4",
+                naturalWidth: width,
+                naturalHeight: height,
+                isVideo: true,
             },
-            { type: "connect_nodes", fromNodeId: director.id, toNodeId: id },
-        ]);
+        },
+        { type: "connect_nodes", fromNodeId: director.id, toNodeId: id },
+    ];
+    try {
+        ctx.applyOps(ops);
     } catch (error) {
         console.warn("[su-director] 新建视频节点失败", error);
     }

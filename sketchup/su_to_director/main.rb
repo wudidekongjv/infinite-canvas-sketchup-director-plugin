@@ -467,26 +467,93 @@ module SuToDirector
     def latest_video_path
       dir = video_dir
       return nil unless dir
-      list = Dir.glob(File.join(dir, '*.mp4')).sort_by { |f| File.mtime(f) }
-      list.last
+      # 不用 Dir.glob：Ruby 的 glob 在中文路径上会返回空，这里直接列目录
+      names = Dir.entries(dir) rescue []
+      files = names.select { |name| name.to_s.downcase.end_with?('.mp4') }
+                   .map { |name| File.join(dir, name) }
+                   .select { |path| File.exist?(path) }
+      files.sort_by { |path| File.mtime(path) }.last
     rescue StandardError
       nil
     end
 
     # ---------- 视频编码 ----------
+    # 不依赖 python：直接找 ffmpeg 可执行文件（插件自带 tools/ffmpeg.exe 优先）
+    def find_ffmpeg
+      list = []
+      list << ENV['SU_DIRECTOR_FFMPEG']
+      list << File.join(__dir__, 'tools', 'ffmpeg.exe')
+      list << File.join(__dir__, 'tools', 'ffmpeg')
+      (ENV['PATH'] || '').split(File::PATH_SEPARATOR).each do |dir|
+        list << File.join(dir, 'ffmpeg.exe')
+        list << File.join(dir, 'ffmpeg')
+      end
+      list.compact.find { |item| File.file?(item.to_s) }
+    rescue StandardError
+      nil
+    end
+
     def encode_video(fps = nil)
       dir = ensure_out_dir
       raise '还没有输出目录，请先回传一次帧' unless dir
       fps = (fps || (@shot && @shot[:fps]) || config['fps']).to_i
-      script = File.join(__dir__, 'tools', 'encode_video.py')
-      raise "缺少编码脚本：#{script}" unless File.exist?(script)
+      ffmpeg = find_ffmpeg
+      raise '找不到 ffmpeg：把 ffmpeg.exe 放到插件目录 su_to_director/tools/ 下即可' unless ffmpeg
 
-      python = ENV['SU_TO_DIRECTOR_PYTHON'] || 'python'
-      cmd = %("#{python}" "#{script}" --dir "#{dir}" --fps #{fps})
-      log('开始合成视频（后台跑 ffmpeg，几秒到几十秒）……')
-      Thread.new do
-        ok = system(cmd)
-        log(ok ? "视频已输出到 #{File.join(dir, 'video')}" : '视频编码失败：请确认 python 与 imageio-ffmpeg 可用')
+      # 优先用导演台合成好的 composite（人物 + SU 背景已经叠好）；
+      # 这里用 File.exist? 而不是 Dir.glob —— Ruby 的 glob 在中文路径上会返回空。
+      composite_first = File.join(dir, 'composite', 'composite_00000.png')
+      if File.exist?(composite_first)
+        pattern = 'composite'
+        first = composite_first
+      else
+        pattern = 'layer'
+        first = File.join(dir, 'layer', 'layer_00000.png')
+        raise '还没有收到导演台回传的帧' unless File.exist?(first)
+      end
+      input = File.join(dir, pattern, "#{pattern}_%05d.png")
+      stamp = Time.now.strftime('%Y%m%d_%H%M%S')
+      out = File.join(dir, 'video', "#{pattern}_#{fps}fps_#{stamp}.mp4")
+      FileUtils.mkdir_p(File.dirname(out))
+
+      # 注意：SU 截图的视口高度常常是奇数（比如 671），yuv420p 要求宽高都是偶数，
+      # 所以必须先 scale 到偶数，否则 libx264 会直接报 "Could not open encoder before EOF"。
+      args = [ffmpeg, '-y', '-framerate', fps.to_s, '-start_number', '0', '-i', input,
+              '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+              '-c:v', 'libx264', '-preset', 'medium', '-crf', '18',
+              '-pix_fmt', 'yuv420p', '-movflags', '+faststart', out].map(&:to_s)
+
+      log("开始合成视频（#{pattern}，后台跑 ffmpeg）……")
+      begin
+        pid = Process.spawn(*args, in: File::NULL, out: File::NULL, err: File::NULL)
+        ticker = ::UI.start_timer(0.5, true) do
+          begin
+            finished = Process.waitpid(pid, Process::WNOHANG)
+            next unless finished
+            ::UI.stop_timer(ticker)
+            if File.exist?(out) && File.size(out).to_i > 0
+              @video = { path: out, size: File.size(out), at: Time.now.strftime('%H:%M:%S') }
+              log("视频已输出：#{File.basename(out)}")
+            else
+              log('视频编码失败：ffmpeg 没有产出文件')
+            end
+          rescue Errno::ECHILD
+            ::UI.stop_timer(ticker)
+          rescue StandardError => e
+            ::UI.stop_timer(ticker)
+            log("视频编码失败：#{e.message}")
+          end
+        end
+      rescue StandardError => e
+        # 退一步：同步跑（少数环境 Process.spawn 不可用）
+        log("后台启动失败，改为前台编码：#{e.message}")
+        ok = system(*args)
+        if ok && File.exist?(out)
+          @video = { path: out, size: File.size(out), at: Time.now.strftime('%H:%M:%S') }
+          log("视频已输出：#{File.basename(out)}")
+        else
+          log('视频编码失败：ffmpeg 返回非 0')
+        end
       end
       status_hash
     end
@@ -619,7 +686,7 @@ module SuToDirector
     end
 
     def video_status
-      file = latest_video_path
+      file = (@video && @video[:path]) || latest_video_path
       return nil unless file && File.exist?(file)
       { url: '/su/video.mp4', size: File.size(file), at: File.mtime(file).to_i }
     rescue StandardError
