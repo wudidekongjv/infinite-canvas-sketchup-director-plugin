@@ -134,11 +134,19 @@ module SuToDirector
       half = cam.fov.to_f * Math::PI / 180.0 / 2.0
       distance = cam.eye.distance(cam.target)
       distance = 1.0 if distance < 1e-6
-      up = cam.up
+      raw_up = cam.up
+      up = Geom::Vector3d.new(raw_up.x.to_f, raw_up.y.to_f, raw_up.z.to_f)
       up = Geom::Vector3d.new(0, 0, 1) if up.length < 1e-9
-      up = up.normalize
+      up.normalize!
 
-      probe = cam.target + up * (distance * Math.tan(half))
+      # 只做纯数值运算，不依赖 SketchUp 的向量运算符重载
+      step = distance * Math.tan(half)
+      target = cam.target
+      probe = Geom::Point3d.new(
+        target.x + up.x * step,
+        target.y + up.y * step,
+        target.z + up.z * step
+      )
       point = view.screen_coords(probe)
       y_norm = point.y.to_f / vh
 
@@ -246,7 +254,20 @@ module SuToDirector
             camera.fov = frame[:su][:fov]
             view.camera = camera
             path = File.join(@out_dir, 'bg', format('bg_%05d.png', index))
-            view.write_image(path, @shot[:width], @shot[:height], true, false, 0.9)
+            begin
+              # SketchUp 2026 的 View#write_image 只接受一个 Hash 参数
+              view.write_image({
+                filename: path,
+                width: @shot[:width],
+                height: @shot[:height],
+                antialias: true,
+                compression: 0.9,
+                transparent: false
+              })
+            rescue StandardError
+              # 旧版 API 是位置参数形式
+              view.write_image(path, @shot[:width], @shot[:height], true, 0.9)
+            end
             @bg_done += 1
           end
         rescue StandardError => e

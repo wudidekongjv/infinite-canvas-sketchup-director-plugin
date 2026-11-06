@@ -59,10 +59,10 @@ npx http-server director -p 5199
 在画布的「节点插件 / 第三方插件」里填：
 
 ```
-https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.3/dist/director.js
+https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.4/dist/director.js
 ```
 
-> 推荐用 `@v0.1.3` 这类的 tag 地址：jsDelivr 对分支（`@main`）有 12 小时缓存，改完代码立刻用 `@main` 可能还是旧版；tag 不可变，立即可用。想跟最新提交就用 `@main`，但要做好等缓存的心理准备。
+> 推荐用 `@v0.1.4` 这类的 tag 地址：jsDelivr 对分支（`@main`）有 12 小时缓存，改完代码立刻用 `@main` 可能还是旧版；tag 不可变，立即可用。想跟最新提交就用 `@main`，但要做好等缓存的心理准备。
 
 装好后画布节点面板里会多出 **SU ⇄ 3D 导演台**。
 
@@ -157,6 +157,9 @@ SketchUp 2026（Ruby 3.2）上有两个坑，v0.1.2 已经修掉。记下原因�
 | --- | --- | --- |
 | 点菜单「启动同步服务」，37740 端口在监听，但 `/su/ping` 一直超时 | `Thread` 里起的 `accept` 在 SketchUp 2026 根本不推进——线程对象在、端口在监听，就是没有代码去处理连接 | `bridge.rb` 改用 `UI.start_timer` 在主线程轮询 `accept_nonblock`，顺带让处理函数能安全碰 SketchUp API |
 | 面板上的按钮点了没反应，状态一直显示「同步服务未启动」 | SketchUp 2026 的 `HtmlDialog` 里 JS 侧的 `sketchup.*` 桥不可用，回调进不到 Ruby | 面板改走 `http://127.0.0.1:37740/su/command`（与菜单同一套命令分发），状态每 1.5 秒拉一次 `/su/status`；打开面板时会自动把服务拉起来 |
+| 点「渲染背景帧」，面板立刻显示「背景帧渲染失败（第 0 帧）：Too many arguments」 | SketchUp 2026 的 `View#write_image` 只接受**一个 Hash 参数**；老写法是 5～6 个位置参数，2026 直接拒绝 | 改成 Hash 形式（`filename/width/height/antialias/compression/transparent`），并对老版本保留位置参数回退（v0.1.4） |
+
+> 改完 `main.rb` 这类插件代码，**必须重启 SketchUp 才会加载新代码**。这次排查时 SketchUp 2026 的 Ruby 控制台一直打不开，热重载这条路走不通，别浪费时间试。
 
 自己确认服务是否活着（PowerShell 里跑，注意用系统自带的 curl 绝对路径）：
 
