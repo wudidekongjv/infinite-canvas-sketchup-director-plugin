@@ -72,6 +72,44 @@ function randomId(prefix) {
 // 所以这里先把页面文字取回来，补上 <base> 让 ./assets/ 仍从同一个 CDN 目录加载，
 // 再用 srcdoc 装进 iframe —— 这样只填一个 CDN 地址就能用，本机不用起服务。
 // 参数（suBridge / hostOrigin）也从 search 改成注入 window.__DIRECTOR_BOOTSTRAP__。
+// CDN 返回的 .css 在 srcdoc（页面 origin 是 null）下会因 CORS 校验被丢弃，界面会变成没有样式的裸文本。
+// 所以把样式表取回来内联进 <style>，同时把里面的相对 url() 改成绝对地址。
+function absolutizeCssUrls(css, cssUrl) {
+    return css.replace(/url\(([^)]+)\)/gi, (match, raw) => {
+        const value = String(raw).trim().replace(/^['"]|['"]$/g, "");
+        if (!value || /^(data:|https?:|blob:|#|\/\/)/i.test(value)) return match;
+        try {
+            return `url("${new URL(value, cssUrl).toString()}")`;
+        } catch {
+            return match;
+        }
+    });
+}
+
+async function inlineStylesheets(html, pageUrl) {
+    const tags = html.match(/<link\b[^>]*rel=["']?stylesheet["']?[^>]*>/gi) || [];
+    let out = html;
+    for (const tag of tags) {
+        const hrefMatch = tag.match(/href=["']([^"']+)["']/i);
+        if (!hrefMatch) continue;
+        let cssUrl;
+        try {
+            cssUrl = new URL(hrefMatch[1], pageUrl).toString();
+        } catch {
+            continue;
+        }
+        try {
+            const response = await fetch(cssUrl, { mode: "cors", credentials: "omit", cache: "no-store" });
+            if (!response.ok) continue;
+            const css = absolutizeCssUrls(await response.text(), cssUrl).replace(/<\/style/gi, "<\\/style");
+            out = out.replace(tag, `<style data-from="${cssUrl}">\n${css}\n</style>`);
+        } catch {
+            // 单个样式表失败就保留原来的 link，页面至少还能跑
+        }
+    }
+    return out;
+}
+
 async function prepareDirectorEntry(directorUrl, params) {
     const direct = { mode: "url", url: withQuery(directorUrl, params) };
     if (!/^https?:/i.test(directorUrl)) return direct;
@@ -82,7 +120,7 @@ async function prepareDirectorEntry(directorUrl, params) {
         if (!/<html/i.test(text)) return direct;
         const baseHref = new URL("./", directorUrl).toString();
         const boot = `<script>window.__DIRECTOR_BOOTSTRAP__=${JSON.stringify(params)};<\/script>`;
-        let html = text;
+        let html = await inlineStylesheets(text, directorUrl);
         if (!/<base\s/i.test(html)) {
             html = html.replace(/<head([^>]*)>/i, `<head$1><base href="${baseHref}">`);
         }
