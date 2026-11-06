@@ -2,3 +2,7 @@ node_modules/
 *.log
 .DS_Store
 sketchup/su_to_director/tools/ffmpeg.exe
+
+# 体积过大，jsDelivr 单包限 50MB，这些备用角色模型不入库（本地仍保留）
+director/local-assets/guo-3d-assets/
+director/local-assets/mixamo/characters/soldier.glb
