@@ -68,6 +68,31 @@ function randomId(prefix) {
     return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+// jsDelivr 之类的 CDN 对 .html 返回 text/plain，浏览器会把它当源码显示，iframe 里什么都跑不起来。
+// 所以这里先把页面文字取回来，补上 <base> 让 ./assets/ 仍从同一个 CDN 目录加载，
+// 再用 srcdoc 装进 iframe —— 这样只填一个 CDN 地址就能用，本机不用起服务。
+// 参数（suBridge / hostOrigin）也从 search 改成注入 window.__DIRECTOR_BOOTSTRAP__。
+async function prepareDirectorEntry(directorUrl, params) {
+    const direct = { mode: "url", url: withQuery(directorUrl, params) };
+    if (!/^https?:/i.test(directorUrl)) return direct;
+    try {
+        const response = await fetch(directorUrl, { mode: "cors", credentials: "omit", cache: "no-store" });
+        if (!response.ok) return direct;
+        const text = await response.text();
+        if (!/<html/i.test(text)) return direct;
+        const baseHref = new URL("./", directorUrl).toString();
+        const boot = `<script>window.__DIRECTOR_BOOTSTRAP__=${JSON.stringify(params)};<\/script>`;
+        let html = text;
+        if (!/<base\s/i.test(html)) {
+            html = html.replace(/<head([^>]*)>/i, `<head$1><base href="${baseHref}">`);
+        }
+        html = html.replace(/<head([^>]*)>/i, (match) => match + boot);
+        return { mode: "srcdoc", html };
+    } catch {
+        return direct;
+    }
+}
+
 function themeMode(ctx) {
     const background = String(ctx.theme?.canvas?.background || "").replace("#", "");
     if (background.length !== 6) return "dark";
@@ -303,23 +328,23 @@ function DirectorContent({ ctx, React }) {
 
         window.addEventListener("message", handleMessage);
 
-        const url = withQuery(directorUrl, {
+        const bootParams = {
             hostOrigin: window.location.origin,
             theme: "dark",
             suBridge,
-        });
+        };
+        const url = withQuery(directorUrl, bootParams);
 
         frame = document.createElement("iframe");
         frame.title = "SU 同步 3D 导演台";
         frame.allow = "fullscreen; clipboard-write";
         frame.referrerPolicy = "no-referrer";
         frame.style.cssText = "position:absolute;inset:0;width:100%;height:100%;border:0;z-index:2";
-        frame.src = url;
         frame.onload = () => {
             // 导演台加载后自己会发 ready；这里只兜一个超时提示，避免用户面对黑屏。
             window.setTimeout(() => {
                 if (!disposed && loading.parentNode && !sessionSent) {
-                    loading.textContent = "导演台没有回传 ready，请确认它在运行、且地址带上了 hostOrigin 参数。";
+                    loading.textContent = "导演台没有回传 ready，请确认 SketchUp 插件已在运行（127.0.0.1:37740）。";
                 }
             }, 12000);
         };
@@ -327,6 +352,18 @@ function DirectorContent({ ctx, React }) {
             loading.textContent = `导演台加载失败：${directorUrl}`;
         };
         overlay.appendChild(frame);
+        loading.textContent = "正在加载导演台…";
+
+        // CDN 的 .html 会被当成纯文本发回来，这里统一转成 srcdoc；本地 http 服务也走同一条路，行为一致。
+        void (async () => {
+            const entry = await prepareDirectorEntry(directorUrl, bootParams);
+            if (disposed) return;
+            if (entry.mode === "srcdoc") {
+                frame.srcdoc = entry.html;
+            } else {
+                frame.src = url;
+            }
+        })();
 
         return () => {
             disposed = true;
