@@ -1,0 +1,13 @@
+{
+    "name": "infinite-canvas-siliconflow-asr-plugin",
+    "version": "0.1.0",
+    "private": false,
+    "type": "module",
+    "description": "Infinite Canvas 第三方节点插件：硅基流动 SenseVoice 语音转文字",
+    "scripts": {
+        "build": "node build.mjs"
+    },
+    "devDependencies": {
+        "esbuild": "^0.25.0"
+    }
+}
