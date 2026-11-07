@@ -58,10 +58,10 @@ Windows 上通常是 `%APPDATA%\SketchUp\SketchUp 2026\SketchUp\Plugins\`。重�
 在画布的「节点插件 / 第三方插件」里填：
 
 ```
-https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.22/dist/director.js
+https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.23/dist/director.js
 ```
 
-> 推荐用 `@v0.1.22` 这类的 tag 地址：jsDelivr 对分支（`@main`）有 12 小时缓存，改完代码立刻用 `@main` 可能还是旧版；tag 不可变，立即可用。想跟最新提交就用 `@main`，但要做好等缓存的心理准备。
+> 推荐用 `@v0.1.23` 这类的 tag 地址：jsDelivr 对分支（`@main`）有 12 小时缓存，改完代码立刻用 `@main` 可能还是旧版；tag 不可变，立即可用。想跟最新提交就用 `@main`，但要做好等缓存的心理准备。
 
 装好后画布节点面板里会多出 **SU ⇄ 3D 导演台**。
 
@@ -89,6 +89,9 @@ https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugi
 - **没有"记起点 / 记终点"了**：SU 的场景本身就是机位，选哪个就是哪个。
 - **背景只取一张**，不逐帧渲染。人物动、背景静止；要换视角，切场景后再点一次 ②。
   这也正是这次修掉卡死的原因：原来一按就逐帧写 145 张 1920×1080，全跑在 SU 主线程，界面直接冻住。
+- **画幅就是成片画幅**：面板里选 16:9 / 9:16 / 1:1 / 4:3 之后，导演台那块画面立刻变成那个比例，
+  背景按 cover 铺满、多出来的边角裁掉（不拉伸、也不留黑边），相机视野按同样的裁切量收窄，
+  所以人物落点和 SU 背景始终对得上。视口里看到的就是成片，不用出完片再猜。
 - 出片后 mp4 经本机 http 回到画布，**画布上自动多一个视频节点**，不用去文件夹里翻。
 
 
