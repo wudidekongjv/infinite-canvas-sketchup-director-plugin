@@ -29,6 +29,7 @@ module SuToDirector
       @last_view = nil    # 最近一次读到的相机姿态
       @video = nil        # { size:, at: } 合成好的 mp4
       @received = Hash.new(0)
+      @probe = nil        # { vp:, view:, samples: [...] } 对位诊断用
       @bridge = nil
       @out_dir = nil
       @messages = []
@@ -133,7 +134,12 @@ module SuToDirector
         target: inch_to_desk(cam.target),
         up: [cam.up.x.round(5), cam.up.z.round(5), (-cam.up.y).round(5)],
         fov: cam.fov.to_f.round(2),
-        vp: { w: view.vpwidth.to_i, h: view.vpheight.to_i }
+        vp: { w: view.vpwidth.to_i, h: view.vpheight.to_i },
+        # SketchUp 的 fov 是「相机图像宽高比(aspect_ratio，默认 4:3)那一框的横向 FOV」，
+        # 导演台必须拿这个比例换算成真实纵向 FOV，否则视野会宽 1.33 倍、模型比背景小一圈
+        camAspect: cam.respond_to?(:aspect_ratio) ? cam.aspect_ratio.to_f.round(4) : 1.33,
+        # SketchUp 的 fov 到底是竖着算还是横着算：导演台必须知道，否则同一个 55° 会差出 1.7 倍
+        fovAxis: calibrate_fov_axis
       }
     end
 
@@ -303,6 +309,85 @@ module SuToDirector
       'vertical'
     end
 
+    # 诊断：取一批「看得见的模型顶点」，记下它在 SU 视口里的真实屏幕位置。
+    # 导演台拿它反算照片到底用的是什么投影，模型和背景才能严丝合缝。
+    def view_probe(params = {})
+      view = Sketchup.active_model.active_view
+      vw = view.vpwidth.to_f
+      vh = view.vpheight.to_f
+      return nil if vw < 1.0 || vh < 1.0
+
+      stride = (params['stride'] || 240).to_i
+      stride = 240 if stride < 1
+      per_cell = (params['count'] || 3).to_i
+      per_cell = 3 if per_cell < 1
+      # 屏幕分成 3 列 × 4 行，每格都要有点：只在画面下方采样会掩盖上下不一致的畸变
+      cells = Hash.new(0)
+      samples = []
+      face_index = 0
+      visited = 0
+      visit = lambda do |entities, transform|
+        entities.each do |entity|
+          next unless entity.respond_to?(:valid?) && entity.valid?
+          case entity
+          when Sketchup::Group
+            visit.call(entity.entities, transform * entity.transformation)
+          when Sketchup::ComponentInstance
+            visit.call(entity.definition.entities, transform * entity.transformation)
+          when Sketchup::Face
+            face_index += 1
+            next if (face_index % stride) != 0
+            visited += 1
+            mesh = entity.mesh(0)
+            next if mesh.nil?
+            polygons = mesh.polygons
+            next if polygons.nil? || polygons.empty?
+            point_index = polygons[0][0]
+            next if point_index.nil?
+            pt = mesh.point_at(point_index).transform(transform)
+            screen = view.screen_coords(pt)
+            u = screen.x.to_f / vw
+            v = screen.y.to_f / vh
+            next if u < 0.02 || u > 0.98 || v < 0.02 || v > 0.98
+            cu = [(u * 3).floor, 2].min
+            cv = [(v * 4).floor, 3].min
+            key = cv * 3 + cu
+            next if cells[key] >= per_cell
+            cells[key] += 1
+            samples << { world: inch_to_desk(pt), uv: [u.round(5), v.round(5)], cell: key }
+          end
+        end
+      end
+      visit.call(Sketchup.active_model.entities, Geom::Transformation.new)
+      {
+        vp: { w: vw.to_i, h: vh.to_i },
+        view: current_view_hash,
+        cam: camera_probe_hash,
+        scannedFaces: visited,
+        samples: samples
+      }
+    rescue StandardError => e
+      log("取对位探针失败：#{e.message}")
+      nil
+    end
+
+    # SketchUp 到底怎么把 fov 摊到画面上：把相机的相关属性全抖出来，一次看清
+    def camera_probe_hash
+      view = Sketchup.active_model.active_view
+      cam = view.camera
+      {
+        fov: cam.fov.to_f,
+        fovIsHorizontal: cam.respond_to?(:fov_is_horizontal) ? cam.fov_is_horizontal : nil,
+        focalLength: cam.respond_to?(:focal_length) ? cam.focal_length.to_f : nil,
+        aspectRatio: cam.respond_to?(:aspect_ratio) ? cam.aspect_ratio.to_f : nil,
+        perspective: cam.respond_to?(:perspective?) ? cam.perspective? : nil,
+        vp: { w: view.vpwidth.to_f, h: view.vpheight.to_f }
+      }
+    rescue StandardError => e
+      log("读相机属性失败：#{e.message}")
+      nil
+    end
+
     def build_shot(params = {})
       width = (params['width'] || config['width']).to_i
       height = (params['height'] || config['height']).to_i
@@ -453,6 +538,7 @@ module SuToDirector
         dir = video_dir
         SuToDirector.open_folder(dir) if dir
       when 'status', '' then nil
+      when 'view_probe' then @probe = view_probe(opts)
       end
       nil
     rescue StandardError => e
@@ -685,6 +771,7 @@ module SuToDirector
         },
         video: video_status,
         received: @received,
+        probe: @probe,
         outDir: @out_dir,
         messages: messages,
         deskUrl: "http://127.0.0.1:#{bridge_port}/su/session"

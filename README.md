@@ -58,10 +58,10 @@ Windows 上通常是 `%APPDATA%\SketchUp\SketchUp 2026\SketchUp\Plugins\`。重�
 在画布的「节点插件 / 第三方插件」里填：
 
 ```
-https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.23/dist/director.js
+https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.24/dist/director.js
 ```
 
-> 推荐用 `@v0.1.23` 这类的 tag 地址：jsDelivr 对分支（`@main`）有 12 小时缓存，改完代码立刻用 `@main` 可能还是旧版；tag 不可变，立即可用。想跟最新提交就用 `@main`，但要做好等缓存的心理准备。
+> 推荐用 `@v0.1.24` 这类的 tag 地址：jsDelivr 对分支（`@main`）有 12 小时缓存，改完代码立刻用 `@main` 可能还是旧版；tag 不可变，立即可用。想跟最新提交就用 `@main`，但要做好等缓存的心理准备。
 
 装好后画布节点面板里会多出 **SU ⇄ 3D 导演台**。
 
@@ -162,7 +162,19 @@ C:\Windows\System32\curl.exe -s http://127.0.0.1:37740/su/status
 
 返回 `{"ok":true,...}` 说明插件这侧是通的；连不上就是 SketchUp 没开，或者服务没起来（重新打开一次面板即可）。
 
-## 七、已知边界
+## 七、对齐的真相：SU 的 `Camera#fov` 是横向的
+
+模型和背景对不上，根子不在模型缩放，也不在机位坐标，而在一句被误读的参数：
+
+- SketchUp 的 `camera.fov`（默认 55°）是 **`camera.aspect_ratio` 那一框（默认 1.33）的横向 FOV**，不是视口纵向 FOV。
+- three.js 的 `PerspectiveCamera.fov` 是**纵向** FOV。直接把 55 塞进去，视野比 SU 宽 1.33 倍，模型就永远「小一圈」。
+- 正确换算是 `vfov = 2·atan( tan(suFov/2) / camAspect )`，55° 在 1.33 框下等于 **42.751°**。v0.1.24 起插件会把这个换算始终带着。
+
+这不是拍脑袋推的：插件里有个 `view_probe` 命令，会用 SketchUp 自己的 `view.screen_coords` 把模型顶点投到屏幕，再反解投影矩阵。实测 26 个采样点、残差 **0.01 像素**，得到 `tx=0.654514`（hfov 66.411°）、`ty=0.391401`（vfov 42.751°），且 `tx/ty = 1.672234` 正好等于 SU 视口宽高比 `1.672131`，平移项为 0。也就是说：**只要纵向 FOV 用 42.751，three 的投影矩阵和 SU 的投影矩阵就是同一个**。
+
+画幅切换只改变「裁多少」，不改变透视：画幅比照片宽时就按 cover 裁掉上下，同时把纵向 FOV 同比收窄（`tan 收缩 = 照片宽高比 / 画幅宽高比`），这样剩下的可见范围仍然和照片严丝合缝。
+
+## 八、已知边界
 
 - 机位就是 SU 的场景，**不记起点终点**；要换视角就切场景，再点一次 ②。
 - 一次出片固定 **5 秒 / 24fps / 120 帧**（不给填参数，减少出错）。
@@ -173,7 +185,7 @@ C:\Windows\System32\curl.exe -s http://127.0.0.1:37740/su/status
 - 视频节点是靠 metadata 里的 `mimeType: "video/mp4"` 被画布当视频素材认出来的；如果你的画布版本不认，mp4 仍然在 `su_director_export\video\` 里可以直接打开。
 - SU 的视口高度常常是奇数（比如 671），而 yuv420p 要求宽高都是偶数，所以导出时会自动补一行/列（成片是 1122×670），肉眼无差。
 
-## 八、许可
+## 九、许可
 
 - 本仓库的节点插件与 SketchUp 插件：AGPL-3.0（见 `LICENSE`）。
 - 3D 导演台本体：MIT（见 `LICENSE-DIRECTOR.md`），上游参考自 `xiaozangao/3d-director-desk`。
