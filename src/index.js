@@ -6,7 +6,7 @@
 // 这样别人只填一个 CDN 地址就能装，不必在本机额外起 5199 静态服务。
 // 只有 import.meta.url 是 blob:（宿主用 blob 加载插件）解析不了相对路径时，才退回 CDN 绝对地址。
 // 兜底地址必须钉 tag，不能写 @main：jsDelivr 对分支有 12 小时缓存，而旧 index.html 引用的 assets 已经删了，结果是白屏。
-const CDN_TAG = "v0.1.30";
+const CDN_TAG = "v0.1.31";
 const CDN_FALLBACK_DIRECTOR_URL =
     `https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@${CDN_TAG}/director/index.html`;
 
@@ -514,7 +514,7 @@ export default function createSuDirectorPlugin(runtime) {
     return {
         id: "su-director",
         name: "SU ⇄ 3D 导演台",
-        version: "0.1.30",
+        version: "0.1.31",
         minAppVersion: "0.12.0",
         description: "把 SketchUp 的机位轨道与遮挡几何体接进 3D 导演台，逐帧合成后回传成片。",
         nodes: [

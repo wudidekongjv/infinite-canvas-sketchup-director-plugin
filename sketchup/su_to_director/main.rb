@@ -531,6 +531,7 @@ module SuToDirector
       when 'start_bridge' then start_bridge(opts['port'])
       when 'stop_bridge' then stop_bridge
       when 'encode_video' then encode_video(opts['fps'])
+      when 'reset_frames' then reset_frames
       when 'open_out_dir'
         dir = ensure_out_dir
         SuToDirector.open_folder(dir) if dir
@@ -583,6 +584,30 @@ module SuToDirector
       nil
     end
 
+    # 出片前清掉上一轮的逐帧图。出片长度改成跟导演台时间轴走了，
+    # 如果不清，这一轮帧数比上一轮少时，目录里多出来的旧帧会被 ffmpeg 一起编进成片。
+    def reset_frames
+      dir = ensure_out_dir
+      return { ok: false, error: '还没有输出目录' } unless dir
+      removed = 0
+      %w[layer composite].each do |sub|
+        folder = File.join(dir, sub)
+        next unless File.directory?(folder)
+        Dir.entries(folder).each do |name|
+          next unless name =~ /\A(?:layer|composite)_\d{5}\.png\z/
+          begin
+            File.delete(File.join(folder, name))
+            removed += 1
+          rescue StandardError
+            nil
+          end
+        end
+      end
+      @received = { 'layer' => 0, 'composite' => 0 }
+      log("出片前清理旧帧：删了 #{removed} 张")
+      { ok: true, removed: removed }
+    end
+
     def encode_video(fps = nil)
       dir = ensure_out_dir
       raise '还没有输出目录，请先回传一次帧' unless dir
@@ -608,10 +633,13 @@ module SuToDirector
 
       # 注意：SU 截图的视口高度常常是奇数（比如 671），yuv420p 要求宽高都是偶数，
       # 所以必须先 scale 到偶数，否则 libx264 会直接报 "Could not open encoder before EOF"。
-      args = [ffmpeg, '-y', '-framerate', fps.to_s, '-start_number', '0', '-i', input,
-              '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
-              '-c:v', 'libx264', '-preset', 'medium', '-crf', '18',
-              '-pix_fmt', 'yuv420p', '-movflags', '+faststart', out].map(&:to_s)
+      # 只编本轮实际收到的那几帧：万一目录里还有旧帧没被清掉，也不会把成片拖长
+      received = (@received[pattern] || 0).to_i
+      args = [ffmpeg, '-y', '-framerate', fps.to_s, '-start_number', '0', '-i', input]
+      args += ['-frames:v', received.to_s] if received > 0
+      args += ['-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+               '-c:v', 'libx264', '-preset', 'medium', '-crf', '18',
+               '-pix_fmt', 'yuv420p', '-movflags', '+faststart', out].map(&:to_s)
 
       log("开始合成视频（#{pattern}，后台跑 ffmpeg）……")
       begin

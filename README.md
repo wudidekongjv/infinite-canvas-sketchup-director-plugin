@@ -35,7 +35,7 @@ SketchUp 插件 → PNG 序列 → ffmpeg → mp4
 **最省事：整仓压缩包**（8.4 MB，除了 `ffmpeg.exe` 之外全都在里面）
 
 ```
-https://github.com/wudidekongjv/infinite-canvas-sketchup-director-plugin/archive/refs/tags/v0.1.30.zip
+https://github.com/wudidekongjv/infinite-canvas-sketchup-director-plugin/archive/refs/tags/v0.1.31.zip
 ```
 
 解压后，把 `sketchup/` 里的两样东西复制到 Plugins 目录：
@@ -47,7 +47,7 @@ sketchup/su_to_director\        →  …\SketchUp\SketchUp 20xx\SketchUp\Plugins
 
 Windows 上通常是 `%APPDATA%\SketchUp\SketchUp 2026\SketchUp\Plugins\`。重启 SketchUp 后，菜单里会出现 **扩展程序 → SU 导演台同步**。
 
-**只想下单个文件**也行，CDN 上都在（前缀 `https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.30/sketchup/`）：
+**只想下单个文件**也行，CDN 上都在（前缀 `https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.31/sketchup/`）：
 
 | 文件 | 作用 |
 | --- | --- |
@@ -106,7 +106,7 @@ http://127.0.0.1:5199/?instanceId=desk_2
 在画布的「节点插件 / 第三方插件」里填：
 
 ```
-https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.30/dist/director.js
+https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.31/dist/director.js
 ```
 
 装好后画布节点面板里会多出 **SU ⇄ 3D 导演台**。
@@ -205,7 +205,7 @@ SketchUp 2026（Ruby 3.2）上踩过几个坑，v0.1.2 前后陆续修掉。记�
 | 点「渲染背景帧」，面板立刻显示「背景帧渲染失败（第 0 帧）：Too many arguments」 | SketchUp 2026 的 `View#write_image` 只接受**一个 Hash 参数**；老写法是 5～6 个位置参数，2026 直接拒绝 | 改成 Hash 形式（`filename/width/height/antialias/compression/transparent`），并对老版本保留位置参数回退（v0.1.4） |
 | 模型和背景总差一点，模型看着「小一圈」 | SU 的 `Camera#fov` 是横向 FOV，被当成纵向塞进了 three | 按 `camAspect` 换算成纵向 FOV（55° → **42.751°**），见第七节（v0.1.24） |
 | 人物能穿过课桌，或者勾了淡影什么也看不见 | 遮挡层被「可见性」开关串联，或淡影被同位置的深度层吃掉 | 「可见性」只管导演视角实体，深度遮挡恒开；深度层后移 `polygonOffset +1`，见第八节（v0.1.25） |
-| 换了 `@main` 地址后画布节点白屏 | jsDelivr 分支缓存 12 小时，旧 `index.html` 指向已删除的 assets | 装 tag 地址（`@v0.1.30`），别用 `@main` |
+| 换了 `@main` 地址后画布节点白屏 | jsDelivr 分支缓存 12 小时，旧 `index.html` 指向已删除的 assets | 装 tag 地址（`@v0.1.31`），别用 `@main` |
 
 > 改完 `main.rb` 这类插件代码，**必须重启 SketchUp 才会加载新代码**。这次排查时 SketchUp 2026 的 Ruby 控制台一直打不开，热重载这条路走不通，别浪费时间试。
 
@@ -265,7 +265,8 @@ SU 导出的 OBJ 在这套流程里**不是模型，是深度**。同一个文�
 ## 九、已知边界
 
 - 机位就是 SU 的场景，**不记起点终点**；要换视角就切场景，再点一次 ②。
-- 一次出片固定 **5 秒 / 24fps / 120 帧**（不给填参数，减少出错）。
+- 出片长度**跟着导演台时间轴走**：时间轴多长就出多长，24fps 固定（0.5–30 秒 → 13–721 帧）。面板 ③ 上方直接写着本次「几秒 / 几帧」。
+- 时间轴没设过的话，用的是默认时长（和底部时间轴面板显示的那个数一致），不再是固定的 5 秒。
 - 导出的是「只写深度」的遮挡层，所以**在导演台视口里默认看不见模型本体**，它只在出片和第一视角里负责挡住人物。想知道模型到底传进来没有，看面板 ① 后面的面数与体积；想肉眼核对模型和照片对没对上，勾「第一视角显示模型淡影（对位检查）」（v0.1.25 起该开关可反复开关、不会再吞掉遮挡）。
 - 背景是**一张静态图**，出片时每帧把机位重新贴一次；运镜时间长了会看出背景是定住的。
 - SU 侧 `main.rb` 的 `calibrate_fov_axis`（探针判断 fov 是纵向还是横向）**目前恒返回 `vertical`**：横向 FOV 时探针点会越出画面被裁成边界值，与「正好落在边界」无法区分。SU 2026 的 `fov_is_horizontal` 返回 nil、`aspect_ratio` 返回 0.0，所以这条判据暂时没法做准。实测当前 SU 确实是纵向，因此不改它也不出错；**如果哪天 SU 换成横向 FOV 口径，前端会跟着报错**——到那时先核 `view_probe` 的残差再动。
@@ -278,6 +279,7 @@ SU 导出的 OBJ 在这套流程里**不是模型，是深度**。同一个文�
 
 | 版本 | 提交 | 关键改动 |
 | --- | --- | --- |
+| v0.1.31 | 见 tag | **成片时长不再写死 5 秒**：以前 `FRAME_COUNT` 是常量 120 帧，时间轴设 3 秒或 10 秒出来的片子一律 5 秒。现在帧数 = `round(时间轴时长 × 24) + 1`，跟导演台时间轴等长（口径和 SU 侧建轨道一致），面板上写明本次几秒几帧。**同时修掉一个被固定帧数掩盖的坑**：SU 的 `/su/frame` 只往里写不清目录，帧数一变少，上一轮多出来的旧帧会被 ffmpeg 一起编进成片；现在点 ③ 会先调 `reset_frames` 清掉上一轮帧，编码再用 `-frames:v 实际帧数` 兜底 |
 | v0.1.30 | 见 tag | **节点建出来了但是空壳**：宿主的 `add_node` 把 `nodeType` 直接当节点 `type` 用，而类型决定渲染器。之前传 `"image"`，宿主就拿 `<img>` 去打一个 mp4，结果节点出现在画布上、里面什么都没有（缩略图图裂）。改成 `nodeType: "video"`，metadata 按宿主的视频字段补齐（`content` / `status` / `mimeType` / `naturalWidth` / `naturalHeight`），尺寸用视频默认 420 并按比例算高 |
 | v0.1.29 | 见 tag | **出片落不进画布，真凶是宿主没接住消息，不是前端没发**：① 去掉 `event.origin` 严格校验——srcdoc 装配出来的页面 origin 可能是 `null`，死卡它会把整条消息悄悄丢掉且毫无提示；改用 `event.source` 认身份，宿主回消息也改成 `targetOrigin: "*"`。② 新建节点从导演台右下方挪到**正下方**——往右排会被画布视口右缘裁掉，看着就像「没建节点」。③ 面板加**真回执**：宿主处理完回一条 ack，成功显示「画布已新建视频节点」，失败显示具体原因，4 秒没回执直接报「消息没被接住」——不再有「提示发了、其实没建」 |
 | v0.1.28 | 见 tag | 视频节点的落位计算加防御：下游节点缺 `height` / `position` 字段时按 0 处理，不再把 `NaN` 写进 `position`（位置是 `NaN` 的节点画布画不出来，表现和「没建节点」一样） |
@@ -289,7 +291,7 @@ SU 导出的 OBJ 在这套流程里**不是模型，是深度**。同一个文�
 | v0.1.22 | `ac0da7f` | 一度改成 contain 留黑，效果不达标，已被 v0.1.23 取代，**别照它做** |
 | v0.1.21 | `595bf61` | 导出 OBJ 真缺面修复（面数上限提到 150 万、`add_face` 按本面顶点重编号、`min_area` 过滤）；背景改真实照片平面；第一视角改 depth / ghost / solid 三分支 |
 
-想装旧版本，把 CDN 地址里的 `@v0.1.30` 换成对应 tag 即可。
+想装旧版本，把 CDN 地址里的 `@v0.1.31` 换成对应 tag 即可。
 
 ## 十一、许可
 
