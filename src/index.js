@@ -6,7 +6,7 @@
 // 这样别人只填一个 CDN 地址就能装，不必在本机额外起 5199 静态服务。
 // 只有 import.meta.url 是 blob:（宿主用 blob 加载插件）解析不了相对路径时，才退回 CDN 绝对地址。
 // 兜底地址必须钉 tag，不能写 @main：jsDelivr 对分支有 12 小时缓存，而旧 index.html 引用的 assets 已经删了，结果是白屏。
-const CDN_TAG = "v0.1.29";
+const CDN_TAG = "v0.1.30";
 const CDN_FALLBACK_DIRECTOR_URL =
     `https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@${CDN_TAG}/director/index.html`;
 
@@ -241,7 +241,9 @@ function addVideoNode(ctx, payload) {
     const width = Number(payload?.width) > 0 ? Math.round(Number(payload.width)) : 1122;
     const height = Number(payload?.height) > 0 ? Math.round(Number(payload.height)) : 670;
     const id = randomId("su-director-video");
-    // 画布只认 nodeType:"image"；视频靠 metadata.mimeType="video/mp4" + content=mp4 地址 来当视频素材。
+    // 必须是 nodeType:"video"。宿主 add_node 会把 nodeType 直接当节点 type 用，
+    // 类型决定渲染器：image 走 <img>，拿 mp4 去当图片就是一个空壳节点（图裂、无内容）。
+    // 视频节点在宿主里的 metadata 形状是 {content, storageKey, status, naturalWidth, naturalHeight, bytes, mimeType, durationMs}。
     // 位置同时写 position 和顶层 x/y，兼容两种 applyOps 实现。
     // 落在导演台正下方。以前往右边排，很容易被画布视口右缘裁掉，用户以为「根本没建」
     const x = Number(director.position?.x) || 0;
@@ -249,20 +251,19 @@ function addVideoNode(ctx, payload) {
         {
             type: "add_node",
             id,
-            nodeType: "image",
+            nodeType: "video",
             title,
             position: { x, y },
             x,
             y,
-            width: 480,
-            height: Math.round(480 * height / width),
+            width: 420,
+            height: Math.round(420 * height / width),
             metadata: {
                 content: url,
                 status: "success",
                 mimeType: "video/mp4",
                 naturalWidth: width,
                 naturalHeight: height,
-                isVideo: true,
             },
         },
         { type: "connect_nodes", fromNodeId: director.id, toNodeId: id },
@@ -513,7 +514,7 @@ export default function createSuDirectorPlugin(runtime) {
     return {
         id: "su-director",
         name: "SU ⇄ 3D 导演台",
-        version: "0.1.29",
+        version: "0.1.30",
         minAppVersion: "0.12.0",
         description: "把 SketchUp 的机位轨道与遮挡几何体接进 3D 导演台，逐帧合成后回传成片。",
         nodes: [
