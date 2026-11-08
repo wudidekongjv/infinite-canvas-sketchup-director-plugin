@@ -35,7 +35,7 @@ SketchUp 插件 → PNG 序列 → ffmpeg → mp4
 **最省事：整仓压缩包**（8.4 MB，除了 `ffmpeg.exe` 之外全都在里面）
 
 ```
-https://github.com/wudidekongjv/infinite-canvas-sketchup-director-plugin/archive/refs/tags/v0.1.25.zip
+https://github.com/wudidekongjv/infinite-canvas-sketchup-director-plugin/archive/refs/tags/v0.1.26.zip
 ```
 
 解压后，把 `sketchup/` 里的两样东西复制到 Plugins 目录：
@@ -47,7 +47,7 @@ sketchup/su_to_director\        →  …\SketchUp\SketchUp 20xx\SketchUp\Plugins
 
 Windows 上通常是 `%APPDATA%\SketchUp\SketchUp 2026\SketchUp\Plugins\`。重启 SketchUp 后，菜单里会出现 **扩展程序 → SU 导演台同步**。
 
-**只想下单个文件**也行，CDN 上都在（前缀 `https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.25/sketchup/`）：
+**只想下单个文件**也行，CDN 上都在（前缀 `https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.26/sketchup/`）：
 
 | 文件 | 作用 |
 | --- | --- |
@@ -106,7 +106,7 @@ http://127.0.0.1:5199/?instanceId=desk_2
 在画布的「节点插件 / 第三方插件」里填：
 
 ```
-https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.25/dist/director.js
+https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.26/dist/director.js
 ```
 
 装好后画布节点面板里会多出 **SU ⇄ 3D 导演台**。
@@ -205,7 +205,7 @@ SketchUp 2026（Ruby 3.2）上踩过几个坑，v0.1.2 前后陆续修掉。记�
 | 点「渲染背景帧」，面板立刻显示「背景帧渲染失败（第 0 帧）：Too many arguments」 | SketchUp 2026 的 `View#write_image` 只接受**一个 Hash 参数**；老写法是 5～6 个位置参数，2026 直接拒绝 | 改成 Hash 形式（`filename/width/height/antialias/compression/transparent`），并对老版本保留位置参数回退（v0.1.4） |
 | 模型和背景总差一点，模型看着「小一圈」 | SU 的 `Camera#fov` 是横向 FOV，被当成纵向塞进了 three | 按 `camAspect` 换算成纵向 FOV（55° → **42.751°**），见第七节（v0.1.24） |
 | 人物能穿过课桌，或者勾了淡影什么也看不见 | 遮挡层被「可见性」开关串联，或淡影被同位置的深度层吃掉 | 「可见性」只管导演视角实体，深度遮挡恒开；深度层后移 `polygonOffset +1`，见第八节（v0.1.25） |
-| 换了 `@main` 地址后画布节点白屏 | jsDelivr 分支缓存 12 小时，旧 `index.html` 指向已删除的 assets | 装 tag 地址（`@v0.1.25`），别用 `@main` |
+| 换了 `@main` 地址后画布节点白屏 | jsDelivr 分支缓存 12 小时，旧 `index.html` 指向已删除的 assets | 装 tag 地址（`@v0.1.26`），别用 `@main` |
 
 > 改完 `main.rb` 这类插件代码，**必须重启 SketchUp 才会加载新代码**。这次排查时 SketchUp 2026 的 Ruby 控制台一直打不开，热重载这条路走不通，别浪费时间试。
 
@@ -218,17 +218,28 @@ C:\Windows\System32\curl.exe -s http://127.0.0.1:37740/su/status
 
 返回 `{"ok":true,...}` 说明插件这侧是通的；连不上就是 SketchUp 没开，或者服务没起来（重新打开一次面板即可）。
 
-## 七、对齐的真相：SU 的 `Camera#fov` 是横向的
+## 七、对齐的真相：SU 的 `Camera#fov` 是**纵向**，不是横向
 
-模型和背景对不上，根子不在模型缩放，也不在机位坐标，而在一句被误读的参数：
+模型和背景对不上，根子不在模型缩放，也不在机位坐标，而在一句被误读的参数。v0.1.24 把它读成横向，于是越标定越歪；v0.1.26 用真机数据一次定了性。
 
-- SketchUp 的 `camera.fov`（默认 55°）是 **`camera.aspect_ratio` 那一框（默认 1.33）的横向 FOV**，不是视口纵向 FOV。
-- three.js 的 `PerspectiveCamera.fov` 是**纵向** FOV。直接把 55 塞进去，视野比 SU 宽 1.33 倍，模型就永远「小一圈」。
-- 正确换算是 `vfov = 2·atan( tan(suFov/2) / camAspect )`，55° 在 1.33 框下等于 **42.751°**。v0.1.24 起插件会把这个换算始终带着。
+**怎么定的**：插件里有个 `view_probe` 命令，抓 36 个模型顶点，把它们的 `world` 坐标和 SU 视口里的真实 `uv` 一起吐出来，再拿几种投影假设反算比对。
 
-这不是拍脑袋推的：插件里有个 `view_probe` 命令，会用 SketchUp 自己的 `view.screen_coords` 把模型顶点投到屏幕，再反解投影矩阵。实测 26 个采样点、残差 **0.01 像素**，得到 `tx=0.654514`（hfov 66.411°）、`ty=0.391401`（vfov 42.751°），且 `tx/ty = 1.672234` 正好等于 SU 视口宽高比 `1.672131`，平移项为 0。也就是说：**只要纵向 FOV 用 42.751，three 的投影矩阵和 SU 的投影矩阵就是同一个**。
+| 假设 | 平均残差 |
+| --- | --- |
+| `fov` 是**纵向**（55° 直接塞进 three） | **0.02 px** |
+| `fov` 是横向，按 `aspect_ratio` 4:3 折成 42.751° | 237.57 px |
+| `fov` 是横向，按视口 1122×671 折 | 294.04 px |
+| 纵向 + 反向叉积（手性错） | 874.90 px |
 
-画幅切换只改变「裁多少」，不改变透视：画幅比照片宽时就按 cover 裁掉上下，同时把纵向 FOV 同比收窄（`tan 收缩 = 照片宽高比 / 画幅宽高比`），这样剩下的可见范围仍然和照片严丝合缝。
+结论：**`cam.fov = 55` 就是纵向视野，直接塞给 `PerspectiveCamera.fov` 即可。**
+
+那 v0.1.24 的 42.751° 是怎么来的？当时按「横向 ÷ camAspect」折算，把 55° 折成 42.751°，再在 1.33 的框里标定到「残差 0.01px」——等于把错口径调到了自洽，还把 42.751 当成权威值写进代码。表现就是背景照片被放大一圈、模型小一圈，怎么调都差一点。
+
+**第二个坑：`camAspect` 的兜底是错的。** `/su/status` 的 `bg.view` 里本来就没有 `camAspect`，它常报 `0.0`，SU 的意思是「跟随视口」。前端以前把「非数值/越界」一律兜底成 1.33，可真实视口是 1122×671 = **1.6721**。现在：`fovAxis` 不是 `horizontal` 就一律按纵向、`camAspect` 为 0 不再当合法值、比例优先取 `vp.w/vp.h`，最后才兜底 4:3。
+
+画幅切换只改变「裁多少」，不改变透视：画幅比照片宽时按 cover 裁掉上下，同时把纵向 FOV 同比收窄（`tan 收缩 = 照片宽高比 / 画幅宽高比`），剩下的可见范围仍和照片严丝合缝。
+
+**画幅框不再被面板压住（v0.1.26）**：第一视角的虚线框以前只给右边留 16 px，理由是「SU 面板是浮层，点收起就看见了」——实际它直接钻到「属性」栏底下。现在左「场景层级」栏、右「属性」栏、浮在最上面的「SU ⇄ 导演台」面板，三者宽度**运行时按真实 DOM 量**（`measureSuStageInsets`），画幅永远只铺在中间那块可见区域，不用点收起也能看全。
 
 ## 八、遮挡是怎么做的（v0.1.25）
 
@@ -266,13 +277,14 @@ SU 导出的 OBJ 在这套流程里**不是模型，是深度**。同一个文�
 
 | 版本 | 提交 | 关键改动 |
 | --- | --- | --- |
+| v0.1.26 | 见 tag | **对齐口径纠正**：SU `cam.fov` 实测是纵向（36 点残差 0.02 px），55° 直接用；v0.1.24 的 42.751° 是错口径下的自洽值，已废弃。`camAspect` 0.0 不再当合法值，比例按视口 `vp.w/vp.h` 算。**画幅框不再被面板压住**：左右边距改为运行时实测左栏 / 属性栏 / SU 浮层 |
 | v0.1.25 | `47f00b3` | 第一视角恢复遮挡（「SU 模型可见性」不再当总开关）；淡影与遮挡同时生效，开关可反复切换；深度层改为后推偏移，淡影不再被自己吃掉 |
-| v0.1.24 | `a97cb9e` | 对齐的真正根因：SU `Camera#fov` 是 1.33 框的横向 FOV，纵向 FOV 应换算成 42.751°，模型不再「小一圈」 |
+| v0.1.24 | `a97cb9e` | 当时判断「SU `Camera#fov` 是 1.33 框的横向 FOV，应换算成 42.751°」——**这个结论是错的，已被 v0.1.26 推翻** |
 | v0.1.23 | `4e1e67c` | 画幅改为「视口画幅 = 成片画幅 + cover 铺满」：多出来的边角裁掉，不拉伸、不留黑，相机 FOV 同步收窄 |
 | v0.1.22 | `ac0da7f` | 一度改成 contain 留黑，效果不达标，已被 v0.1.23 取代，**别照它做** |
 | v0.1.21 | `595bf61` | 导出 OBJ 真缺面修复（面数上限提到 150 万、`add_face` 按本面顶点重编号、`min_area` 过滤）；背景改真实照片平面；第一视角改 depth / ghost / solid 三分支 |
 
-想装旧版本，把 CDN 地址里的 `@v0.1.25` 换成对应 tag 即可。
+想装旧版本，把 CDN 地址里的 `@v0.1.26` 换成对应 tag 即可。
 
 ## 十一、许可
 
