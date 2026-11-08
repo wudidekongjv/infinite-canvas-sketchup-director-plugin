@@ -6,7 +6,7 @@
 // 这样别人只填一个 CDN 地址就能装，不必在本机额外起 5199 静态服务。
 // 只有 import.meta.url 是 blob:（宿主用 blob 加载插件）解析不了相对路径时，才退回 CDN 绝对地址。
 // 兜底地址必须钉 tag，不能写 @main：jsDelivr 对分支有 12 小时缓存，而旧 index.html 引用的 assets 已经删了，结果是白屏。
-const CDN_TAG = "v0.1.27";
+const CDN_TAG = "v0.1.28";
 const CDN_FALLBACK_DIRECTOR_URL =
     `https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@${CDN_TAG}/director/index.html`;
 
@@ -222,11 +222,16 @@ function addVideoNode(ctx, payload) {
     if (nodes.some((node) => node?.metadata?.content === url)) return;
 
     const director = ctx.node;
-    let y = director.position.y;
+    let y = Number(director.position?.y) || 0;
     for (const connection of ctx.getConnections()) {
         if (connection.fromNodeId !== director.id) continue;
         const output = nodes.find((node) => node.id === connection.toNodeId);
-        if (output) y = Math.max(y, output.position.y + output.height + 36);
+        if (output) {
+            // 缺字段就按 0 算，别让 NaN 漏到 position 里——位置是 NaN 的节点画布根本画不出来
+            const top = Number(output.position?.y) || 0;
+            const h = Number(output.height) || 0;
+            y = Math.max(y, top + h + 36);
+        }
     }
 
     const title = typeof payload?.name === "string" && payload.name.trim() ? payload.name.trim() : "导演台成片.mp4";
@@ -235,7 +240,7 @@ function addVideoNode(ctx, payload) {
     const id = randomId("su-director-video");
     // 画布只认 nodeType:"image"；视频靠 metadata.mimeType="video/mp4" + content=mp4 地址 来当视频素材。
     // 位置同时写 position 和顶层 x/y，兼容两种 applyOps 实现。
-    const x = director.position.x + director.width + 96;
+    const x = (Number(director.position?.x) || 0) + (Number(director.width) || 0) + 96;
     const ops = [
         {
             type: "add_node",
@@ -487,7 +492,7 @@ export default function createSuDirectorPlugin(runtime) {
     return {
         id: "su-director",
         name: "SU ⇄ 3D 导演台",
-        version: "0.1.27",
+        version: "0.1.28",
         minAppVersion: "0.12.0",
         description: "把 SketchUp 的机位轨道与遮挡几何体接进 3D 导演台，逐帧合成后回传成片。",
         nodes: [
