@@ -35,7 +35,7 @@ SketchUp 插件 → PNG 序列 → ffmpeg → mp4
 **最省事：整仓压缩包**（8.4 MB，除了 `ffmpeg.exe` 之外全都在里面）
 
 ```
-https://github.com/wudidekongjv/infinite-canvas-sketchup-director-plugin/archive/refs/tags/v0.1.28.zip
+https://github.com/wudidekongjv/infinite-canvas-sketchup-director-plugin/archive/refs/tags/v0.1.29.zip
 ```
 
 解压后，把 `sketchup/` 里的两样东西复制到 Plugins 目录：
@@ -47,7 +47,7 @@ sketchup/su_to_director\        →  …\SketchUp\SketchUp 20xx\SketchUp\Plugins
 
 Windows 上通常是 `%APPDATA%\SketchUp\SketchUp 2026\SketchUp\Plugins\`。重启 SketchUp 后，菜单里会出现 **扩展程序 → SU 导演台同步**。
 
-**只想下单个文件**也行，CDN 上都在（前缀 `https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.28/sketchup/`）：
+**只想下单个文件**也行，CDN 上都在（前缀 `https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.29/sketchup/`）：
 
 | 文件 | 作用 |
 | --- | --- |
@@ -106,7 +106,7 @@ http://127.0.0.1:5199/?instanceId=desk_2
 在画布的「节点插件 / 第三方插件」里填：
 
 ```
-https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.28/dist/director.js
+https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@v0.1.29/dist/director.js
 ```
 
 装好后画布节点面板里会多出 **SU ⇄ 3D 导演台**。
@@ -205,7 +205,7 @@ SketchUp 2026（Ruby 3.2）上踩过几个坑，v0.1.2 前后陆续修掉。记�
 | 点「渲染背景帧」，面板立刻显示「背景帧渲染失败（第 0 帧）：Too many arguments」 | SketchUp 2026 的 `View#write_image` 只接受**一个 Hash 参数**；老写法是 5～6 个位置参数，2026 直接拒绝 | 改成 Hash 形式（`filename/width/height/antialias/compression/transparent`），并对老版本保留位置参数回退（v0.1.4） |
 | 模型和背景总差一点，模型看着「小一圈」 | SU 的 `Camera#fov` 是横向 FOV，被当成纵向塞进了 three | 按 `camAspect` 换算成纵向 FOV（55° → **42.751°**），见第七节（v0.1.24） |
 | 人物能穿过课桌，或者勾了淡影什么也看不见 | 遮挡层被「可见性」开关串联，或淡影被同位置的深度层吃掉 | 「可见性」只管导演视角实体，深度遮挡恒开；深度层后移 `polygonOffset +1`，见第八节（v0.1.25） |
-| 换了 `@main` 地址后画布节点白屏 | jsDelivr 分支缓存 12 小时，旧 `index.html` 指向已删除的 assets | 装 tag 地址（`@v0.1.28`），别用 `@main` |
+| 换了 `@main` 地址后画布节点白屏 | jsDelivr 分支缓存 12 小时，旧 `index.html` 指向已删除的 assets | 装 tag 地址（`@v0.1.29`），别用 `@main` |
 
 > 改完 `main.rb` 这类插件代码，**必须重启 SketchUp 才会加载新代码**。这次排查时 SketchUp 2026 的 Ruby 控制台一直打不开，热重载这条路走不通，别浪费时间试。
 
@@ -278,6 +278,7 @@ SU 导出的 OBJ 在这套流程里**不是模型，是深度**。同一个文�
 
 | 版本 | 提交 | 关键改动 |
 | --- | --- | --- |
+| v0.1.29 | 见 tag | **出片落不进画布，真凶是宿主没接住消息，不是前端没发**：① 去掉 `event.origin` 严格校验——srcdoc 装配出来的页面 origin 可能是 `null`，死卡它会把整条消息悄悄丢掉且毫无提示；改用 `event.source` 认身份，宿主回消息也改成 `targetOrigin: "*"`。② 新建节点从导演台右下方挪到**正下方**——往右排会被画布视口右缘裁掉，看着就像「没建节点」。③ 面板加**真回执**：宿主处理完回一条 ack，成功显示「画布已新建视频节点」，失败显示具体原因，4 秒没回执直接报「消息没被接住」——不再有「提示发了、其实没建」 |
 | v0.1.28 | 见 tag | 视频节点的落位计算加防御：下游节点缺 `height` / `position` 字段时按 0 处理，不再把 `NaN` 写进 `position`（位置是 `NaN` 的节点画布画不出来，表现和「没建节点」一样） |
 | v0.1.27 | 见 tag | **出片后画布自动落视频节点**。以前点 ③ 会先拿 `/su/status` 里**上一轮**留下的旧 mp4 发进画布（这时新视频还没编完），等新 mp4 出来面板已经归空闲、不再发——表现就是「点了出片，画布里没有视频节点」。现在按「本次出片开始时刻」做门槛，只认之后写出来的 mp4，URL 带 `?v=<at>` 既能破浏览器缓存，也让画布每次新建节点而不是当成同一条跳过 |
 | v0.1.26 | 见 tag | **对齐口径纠正**：SU `cam.fov` 实测是纵向（36 点残差 0.02 px），55° 直接用；v0.1.24 的 42.751° 是错口径下的自洽值，已废弃。`camAspect` 0.0 不再当合法值，比例按视口 `vp.w/vp.h` 算。**画幅框不再被面板压住**：左右边距改为运行时实测左栏 / 属性栏 / SU 浮层 |
@@ -287,7 +288,7 @@ SU 导出的 OBJ 在这套流程里**不是模型，是深度**。同一个文�
 | v0.1.22 | `ac0da7f` | 一度改成 contain 留黑，效果不达标，已被 v0.1.23 取代，**别照它做** |
 | v0.1.21 | `595bf61` | 导出 OBJ 真缺面修复（面数上限提到 150 万、`add_face` 按本面顶点重编号、`min_area` 过滤）；背景改真实照片平面；第一视角改 depth / ghost / solid 三分支 |
 
-想装旧版本，把 CDN 地址里的 `@v0.1.28` 换成对应 tag 即可。
+想装旧版本，把 CDN 地址里的 `@v0.1.29` 换成对应 tag 即可。
 
 ## 十一、许可
 

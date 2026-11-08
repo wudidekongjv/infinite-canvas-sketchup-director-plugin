@@ -6,7 +6,7 @@
 // 这样别人只填一个 CDN 地址就能装，不必在本机额外起 5199 静态服务。
 // 只有 import.meta.url 是 blob:（宿主用 blob 加载插件）解析不了相对路径时，才退回 CDN 绝对地址。
 // 兜底地址必须钉 tag，不能写 @main：jsDelivr 对分支有 12 小时缓存，而旧 index.html 引用的 assets 已经删了，结果是白屏。
-const CDN_TAG = "v0.1.28";
+const CDN_TAG = "v0.1.29";
 const CDN_FALLBACK_DIRECTOR_URL =
     `https://cdn.jsdelivr.net/gh/wudidekongjv/infinite-canvas-sketchup-director-plugin@${CDN_TAG}/director/index.html`;
 
@@ -216,13 +216,16 @@ async function sendCaptures(ctx, captures) {
 /** 导演台合成好的 mp4：在画布里落一个视频节点。同一条视频重复发来只认第一次（幂等） */
 function addVideoNode(ctx, payload) {
     const url = typeof payload?.url === "string" ? payload.url : "";
-    if (!/^https?:\/\//.test(url)) return;
+    if (!/^https?:\/\//.test(url)) {
+        return { ok: false, error: `视频地址不是 http(s) 地址：${url || "（空）"}` };
+    }
 
     const nodes = ctx.getNodes();
-    if (nodes.some((node) => node?.metadata?.content === url)) return;
+    const existed = nodes.find((node) => node?.metadata?.content === url);
+    if (existed) return { ok: true, nodeId: existed.id, existed: true };
 
     const director = ctx.node;
-    let y = Number(director.position?.y) || 0;
+    let y = (Number(director.position?.y) || 0) + (Number(director.height) || 0) + 36;
     for (const connection of ctx.getConnections()) {
         if (connection.fromNodeId !== director.id) continue;
         const output = nodes.find((node) => node.id === connection.toNodeId);
@@ -240,7 +243,8 @@ function addVideoNode(ctx, payload) {
     const id = randomId("su-director-video");
     // 画布只认 nodeType:"image"；视频靠 metadata.mimeType="video/mp4" + content=mp4 地址 来当视频素材。
     // 位置同时写 position 和顶层 x/y，兼容两种 applyOps 实现。
-    const x = (Number(director.position?.x) || 0) + (Number(director.width) || 0) + 96;
+    // 落在导演台正下方。以前往右边排，很容易被画布视口右缘裁掉，用户以为「根本没建」
+    const x = Number(director.position?.x) || 0;
     const ops = [
         {
             type: "add_node",
@@ -265,8 +269,10 @@ function addVideoNode(ctx, payload) {
     ];
     try {
         ctx.applyOps(ops);
+        return { ok: true, nodeId: id };
     } catch (error) {
         console.warn("[su-director] 新建视频节点失败", error);
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
 }
 
@@ -338,15 +344,17 @@ function DirectorContent({ ctx, React }) {
 
         const handleMessage = (event) => {
             if (disposed || !frame) return;
+            // 只认这一个 iframe 自己发来的消息。source 才是可靠的身份，origin 靠不住：
+            // srcdoc 装配出来的页面 origin 可能是 null，也可能是宿主的 origin，死卡 origin
+            // 会把「成片」这类消息整条丢掉，而且宿主这边一点提示都没有。
             if (event.source !== frame.contentWindow) return;
-            if (event.origin !== directorOrigin) return;
             const type = event.data?.type;
 
             if (type === READY) {
                 if (sessionSent) return;
                 sessionSent = true;
                 loading.remove();
-                send = (message) => frame?.contentWindow?.postMessage(message, directorOrigin);
+                send = (message) => frame?.contentWindow?.postMessage(message, "*");
                 sendRef.current = send;
                 send({ type: SESSION, payload: { instanceId: ctxRef.current.node.id, theme: themeMode(ctxRef.current) } });
                 for (const panorama of panoramasRef.current) {
@@ -362,7 +370,20 @@ function DirectorContent({ ctx, React }) {
             }
 
             if (type === VIDEO_SENT) {
-                addVideoNode(ctxRef.current, event.data?.payload);
+                const result = addVideoNode(ctxRef.current, event.data?.payload);
+                // 回一条执，导演台面板就能把「建成了 / 为什么没建成」直接显示出来
+                try {
+                    frame?.contentWindow?.postMessage(
+                        {
+                            type: "storyai:director-desk-video-ack",
+                            ok: Boolean(result?.ok),
+                            error: result?.ok ? undefined : result?.error,
+                        },
+                        "*",
+                    );
+                } catch {
+                    // 回执失败不影响主流程
+                }
                 return;
             }
 
@@ -492,7 +513,7 @@ export default function createSuDirectorPlugin(runtime) {
     return {
         id: "su-director",
         name: "SU ⇄ 3D 导演台",
-        version: "0.1.28",
+        version: "0.1.29",
         minAppVersion: "0.12.0",
         description: "把 SketchUp 的机位轨道与遮挡几何体接进 3D 导演台，逐帧合成后回传成片。",
         nodes: [
